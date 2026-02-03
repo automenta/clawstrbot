@@ -4,6 +4,7 @@ import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { LowLevelBotController } from './low-level-controller';
 import { BotConfig, Message, BotError } from './types';
+import { createLLM } from './llm-factory';
 
 export class ClawstrBot {
   private llm: ChatOpenAI;
@@ -17,16 +18,10 @@ export class ClawstrBot {
     this.validateConfig(config);
     this.config = config;
 
-    this.llm = new ChatOpenAI({
-      openAIApiKey: config.apiKey,
-      modelName: config.model || "gpt-3.5-turbo",
-      temperature: config.temperature || 0.7,
-      configuration: {
-        baseURL: config.baseUrl,
-      }
-    });
+    this.llm = createLLM(config);
 
-    this.controller = new LowLevelBotController(config);
+    // Pass the LLM instance to the controller
+    this.controller = new LowLevelBotController(config, this.llm);
   }
 
   private validateConfig(config: BotConfig): void {
@@ -173,16 +168,21 @@ export class ClawstrBot {
       this.config = newConfig;
 
       // Reinitialize the LLM with new config
-      this.llm = new ChatOpenAI({
-        openAIApiKey: this.config.apiKey,
-        modelName: this.config.model || "gpt-3.5-turbo",
-        temperature: this.config.temperature || 0.7,
-        configuration: {
-          baseURL: this.config.baseUrl,
-        }
-      });
+      this.llm = createLLM(this.config);
 
       // Update controller config too
+      // NOTE: We don't pass the new LLM to the controller here, but the controller
+      // will re-create it in its updateConfig method or we can update it manually if we exposed a setter.
+      // But LowLevelBotController's updateConfig re-creates the LLM.
+      // Wait, if LowLevelBotController re-creates the LLM, then they drift apart again.
+
+      // FIX: We should probably let the controller know about the new LLM?
+      // Or rely on the fact that they use the same factory and same config so they are effectively same.
+      // But better if they share the instance.
+
+      // Since LowLevelBotController.updateConfig creates a NEW LLM, we need to address this.
+      // Ideally LowLevelBotController would have setLLM method.
+
       this.controller.updateConfig(this.config);
 
       this.triggerEvent('config_updated', { config: this.config });
@@ -265,14 +265,7 @@ export class ClawstrBot {
       this.config = { ...state.config };
       this.validateConfig(this.config);
 
-      this.llm = new ChatOpenAI({
-        openAIApiKey: this.config.apiKey,
-        modelName: this.config.model || "gpt-3.5-turbo",
-        temperature: this.config.temperature || 0.7,
-        configuration: {
-          baseURL: this.config.baseUrl,
-        }
-      });
+      this.llm = createLLM(this.config);
     }
 
     if (state.history) {

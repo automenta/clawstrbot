@@ -3,6 +3,7 @@ import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from "@langchain/
 import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { Message, BotConfig } from './types';
+import { createLLM } from './llm-factory';
 
 export interface LowLevelBotControllerOptions {
   enableDirectAccess?: boolean;
@@ -18,7 +19,7 @@ export class LowLevelBotController {
   private eventLog: any[] = [];
   private options: LowLevelBotControllerOptions;
 
-  constructor(config: BotConfig, options: LowLevelBotControllerOptions = {}) {
+  constructor(config: BotConfig, llm?: ChatOpenAI, options: LowLevelBotControllerOptions = {}) {
     this.config = config;
     this.options = { 
       enableDirectAccess: true, 
@@ -27,14 +28,7 @@ export class LowLevelBotController {
       ...options 
     };
     
-    this.llm = new ChatOpenAI({
-      openAIApiKey: config.apiKey,
-      modelName: config.model || "gpt-3.5-turbo",
-      temperature: config.temperature || 0.7,
-      configuration: {
-        baseURL: config.baseUrl,
-      }
-    });
+    this.llm = llm || createLLM(config);
   }
 
   // Direct LLM access methods
@@ -108,14 +102,9 @@ export class LowLevelBotController {
 
     if (state.config) {
       this.config = { ...state.config };
-      this.llm = new ChatOpenAI({
-        openAIApiKey: this.config.apiKey,
-        modelName: this.config.model || "gpt-3.5-turbo",
-        temperature: this.config.temperature || 0.7,
-        configuration: {
-          baseURL: this.config.baseUrl,
-        }
-      });
+      // Note: We don't have access to the original LLM if it was passed in constructor,
+      // so we have to recreate it if config changes.
+      this.llm = createLLM(this.config);
     }
 
     if (state.history) {
@@ -136,14 +125,7 @@ export class LowLevelBotController {
     this.config = { ...this.config, ...config };
     
     // Reinitialize the LLM with new config
-    this.llm = new ChatOpenAI({
-      openAIApiKey: this.config.apiKey,
-      modelName: this.config.model || "gpt-3.5-turbo",
-      temperature: this.config.temperature || 0.7,
-      configuration: {
-        baseURL: this.config.baseUrl,
-      }
-    });
+    this.llm = createLLM(this.config);
 
     if (this.options.enableEventLogging) {
       this.logEvent('config_update', { config });
@@ -252,14 +234,7 @@ export class LowLevelBotController {
     this.eventLog = [];
     
     // Reinitialize with current config
-    this.llm = new ChatOpenAI({
-      openAIApiKey: this.config.apiKey,
-      modelName: this.config.model || "gpt-3.5-turbo",
-      temperature: this.config.temperature || 0.7,
-      configuration: {
-        baseURL: this.config.baseUrl,
-      }
-    });
+    this.llm = createLLM(this.config);
     
     if (this.options.enableEventLogging) {
       this.logEvent('reset', {});
