@@ -1,0 +1,13 @@
+{
+  "apiKey": "",
+  "baseUrl": "",
+  "model": "",
+  "temperature": 0.7,
+  "autoPromptInterval": 30,
+  "maxIterations": 100,
+  "dashboard": {
+    "title": "Clawstr Bot Dashboard",
+    "width": 80,
+    "height": 24
+  }
+}
