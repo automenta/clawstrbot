@@ -1,4 +1,4 @@
-import { ApprovalRequest, ApprovalStatus, ActionType } from './approval-types';
+import { ApprovalRequest, ActionType } from './approval-types';
 import { ApprovalSystem } from './approval-system';
 import { Account } from './account-manager';
 import { RateLimiter } from './rate-limiter';

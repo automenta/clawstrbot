@@ -6,17 +6,14 @@ import figlet from 'figlet';
 import { ClawstrBot } from './bot';
 import { BotManager } from './bot-manager';
 import { ConfigManager } from './config-manager';
-import { ControlManager, ControlMode } from './control-manager';
 import { TUIDashboard } from './tui-dashboard';
 import { PersistenceManager, SessionData } from './persistence-manager';
-import { AccountManager, AccountCredentials, Account } from './account-manager';
-import { EventSystem } from './event-system';
+import { AccountManager, AccountCredentials } from './account-manager';
 import { ExampleAgentImplementation } from './example-agent-implementation';
 import { ApprovalSystem } from './approval-system';
 import { ApprovalPolicyManager } from './approval-policy-manager';
 import { ApprovalEnabledBot } from './approval-enabled-bot';
-import { ApprovalStatus, ActionType } from './approval-types';
-import { LMReasoningAgent } from './lm-reasoning-agent';
+import { ActionType } from './approval-types';
 
 // Print banner
 console.log(
@@ -69,9 +66,6 @@ async function main() {
     console.log(chalk.green('LM provider configured successfully!'));
   }
 
-  // Initialize event system
-  const eventSystem = new EventSystem();
-
   // Initialize persistence
   const persistenceManager = PersistenceManager.getInstance();
   await persistenceManager.init('./sessions');
@@ -103,7 +97,6 @@ async function main() {
 
   // Initialize approval system if enabled
   let approvalSystem: ApprovalSystem | undefined;
-  let approvalEnabledBot: ApprovalEnabledBot | undefined;
 
   if (options.enableApprovals) {
     console.log(chalk.blue('Initializing approval system...'));
@@ -119,7 +112,6 @@ async function main() {
     ]; // Require approval for posts, deletes, and tool execution
 
     approvalSystem = new ApprovalSystem(approvalConfig);
-    approvalSystem.setEventSystem(eventSystem);
 
     // Subscribe to approval notifications
     approvalSystem.subscribeToNotifications((notification) => {
@@ -140,6 +132,8 @@ async function main() {
 
   // Create or restore bot
   let bot: ClawstrBot;
+  const botId = `bot-${options.session}`;
+
   if (sessionData) {
     console.log(chalk.green(`Restoring bot from session: ${options.session}`));
     bot = new ClawstrBot(sessionData.config);
@@ -151,9 +145,13 @@ async function main() {
     bot = new ClawstrBot(botConfig);
   }
 
+  // Add bot to manager
+  botManager.createBot(botId, botConfig);
+  botManager.setActiveBot(botId);
+
   // If approval system is enabled, wrap the bot
   if (approvalSystem) {
-    approvalEnabledBot = new ApprovalEnabledBot({
+    const approvalEnabledBot = new ApprovalEnabledBot({
       bot,
       approvalSystem
     });
@@ -161,14 +159,14 @@ async function main() {
 
   // Subscribe to bot events
   bot.subscribeToEvent('response', (data: any) => {
-    eventSystem.emit('bot_response', {
+    botManager.getEventSystem().emit('bot_response', {
       sessionId: options.session,
       ...data
     }, 'bot');
   });
 
   bot.subscribeToEvent('error', (error: any) => {
-    eventSystem.emit('bot_error', {
+    botManager.getEventSystem().emit('bot_error', {
       sessionId: options.session,
       error
     }, 'bot');
@@ -182,32 +180,31 @@ async function main() {
   // Update dashboard with initial info
   dashboard.updateBotStatus(`Session: ${options.session}\nStatus: Running\nUser: ${account.username}`);
   dashboard.addMessage(`Bot initialized for user: ${account.username}`);
-  dashboard.setMode(ControlMode.AUTOMATIC); // Using AUTOMATIC mode to represent autonomous operation
 
   // Register event handlers for dashboard updates
-  eventSystem.subscribe('bot_response', (event) => {
+  botManager.getEventSystem().subscribe('bot_response', (event) => {
     dashboard.addMessage(`Response: ${event.payload.response.substring(0, 100)}...`);
   });
 
-  eventSystem.subscribe('bot_error', (event) => {
+  botManager.getEventSystem().subscribe('bot_error', (event) => {
     dashboard.addMessage(`ERROR: ${event.payload.error.message}`);
   });
 
-  eventSystem.subscribe('session_saved', (event) => {
+  botManager.getEventSystem().subscribe('session_saved', (event) => {
     dashboard.addMessage(`Session saved: ${event.payload.sessionId}`);
   });
 
   // Subscribe to approval events if approval system is enabled
   if (approvalSystem) {
-    eventSystem.subscribe('approval_notification', (event) => {
+    botManager.getEventSystem().subscribe('approval_notification', (event) => {
       dashboard.addMessage(`[APPROVAL] ${event.payload.message}`);
     });
 
-    eventSystem.subscribe('approval_granted', (event) => {
+    botManager.getEventSystem().subscribe('approval_granted', (event) => {
       dashboard.addMessage(`[APPROVAL] Request ${event.payload.requestId} granted by ${event.payload.approvedBy}`);
     });
 
-    eventSystem.subscribe('approval_rejected', (event) => {
+    botManager.getEventSystem().subscribe('approval_rejected', (event) => {
       dashboard.addMessage(`[APPROVAL] Request ${event.payload.requestId} rejected by ${event.payload.rejectedBy}`);
     });
   }
@@ -215,10 +212,9 @@ async function main() {
   // Create and initialize the MCP Integration Agent as the core intelligence
   console.log(chalk.blue('Initializing MCP Integration Agent...'));
 
-  const { MCPIntegrationAgent } = await import('./mcp-integration-agent');
-
   // Create the MCP Integration Agent with MCP-style tools
-  const agent = new MCPIntegrationAgent(bot, eventSystem, account.id);
+  const agentId = `agent-${options.session}`;
+  const agent = botManager.createAgent(agentId, botId, account.id);
 
   // Connect approval system to behavioral controller if available
   if (approvalSystem) {
@@ -226,20 +222,20 @@ async function main() {
   }
 
   // Add agent events to dashboard
-  eventSystem.subscribe('agent_action', (event) => {
+  botManager.getEventSystem().subscribe('agent_action', (event) => {
     dashboard.addMessage(`[AGENT] Action: ${event.payload.actionName} - ${JSON.stringify(event.payload.result).substring(0, 100)}...`);
   });
 
   // Subscribe to activity events for dashboard updates
-  eventSystem.subscribe('agent_activity_start', (event) => {
+  botManager.getEventSystem().subscribe('agent_activity_start', (event) => {
     dashboard.addMessage(`[ACTIVITY] Started: ${event.payload.activityType} (scheduled: ${event.payload.scheduledDurationMs}ms)`);
   });
 
-  eventSystem.subscribe('agent_activity_complete', (event) => {
+  botManager.getEventSystem().subscribe('agent_activity_complete', (event) => {
     dashboard.addMessage(`[ACTIVITY] Completed: ${event.payload.activityType} (actual: ${event.payload.durationMs}ms)`);
   });
 
-  eventSystem.subscribe('agent_activity_progress', (event) => {
+  botManager.getEventSystem().subscribe('agent_activity_progress', (event) => {
     // Optionally show progress updates
     // dashboard.addMessage(`[ACTIVITY] Progress: ${event.payload.activityType} (${(event.payload.progress * 100).toFixed(1)}%)`);
   });
@@ -286,6 +282,22 @@ async function main() {
     }
   });
 
+  // Set up memory updates to the dashboard
+  const updateMemoryDisplay = () => {
+    try {
+      // Get memories from the bot (limit to most recent 20)
+      const memories = bot.getAllMemories(20);
+      dashboard.updateMemories(memories);
+    } catch (error) {
+      console.error(chalk.red('Error updating memory display:'), error);
+    }
+  };
+
+  // Update memory display every 5 seconds
+  setInterval(updateMemoryDisplay, 5000);
+  // Also update immediately
+  setTimeout(updateMemoryDisplay, 1000);
+
   // Set up the agent to run continuously
   console.log(chalk.blue('Starting agent-driven operations...'));
   dashboard.setStatus('Agent running - autonomous mode');
@@ -297,7 +309,7 @@ async function main() {
       dashboard.addMessage('[AGENT] Starting activity cycle...');
 
       // Run the agent's activity cycle
-      await (agent as any).runActivityCycle();
+      await agent.runActivityCycle();
 
       console.log(chalk.cyan('MCP Integration Agent activity cycle completed'));
       dashboard.addMessage('[AGENT] Activity cycle completed');
@@ -314,7 +326,7 @@ async function main() {
   setTimeout(runAgentLoop, 5000); // Start after 5 seconds to allow other systems to initialize
 
   // Create and initialize the example agent
-  const agentDemo = new ExampleAgentImplementation(bot, eventSystem);
+  const agentDemo = new ExampleAgentImplementation(bot, botManager.getEventSystem());
 
   // If agent demo option is enabled, run the demonstration
   if (options.agentDemo) {
@@ -352,10 +364,10 @@ async function main() {
       try {
         await persistenceManager.saveSession(options.session, currentSessionData);
         console.log(chalk.gray(`Session ${options.session} saved at ${new Date().toISOString()}`));
-        eventSystem.emit('session_saved', { sessionId: options.session }, 'persistence');
+        botManager.getEventSystem().emit('session_saved', { sessionId: options.session }, 'persistence');
       } catch (error) {
         console.error(chalk.red(`Failed to save session: ${error}`));
-        eventSystem.emit('session_save_error', { sessionId: options.session, error }, 'persistence');
+        botManager.getEventSystem().emit('session_save_error', { sessionId: options.session, error }, 'persistence');
       }
     }
   }, 30000); // Save every 30 seconds
@@ -384,10 +396,10 @@ async function main() {
       try {
         await persistenceManager.saveSession(options.session, currentSessionData);
         console.log(chalk.green(`Session ${options.session} saved on exit`));
-        eventSystem.emit('session_saved_on_exit', { sessionId: options.session }, 'persistence');
+        botManager.getEventSystem().emit('session_saved_on_exit', { sessionId: options.session }, 'persistence');
       } catch (error) {
         console.error(chalk.red(`Failed to save session on exit: ${error}`));
-        eventSystem.emit('session_save_error_on_exit', { sessionId: options.session, error }, 'persistence');
+        botManager.getEventSystem().emit('session_save_error_on_exit', { sessionId: options.session, error }, 'persistence');
       }
     }
 

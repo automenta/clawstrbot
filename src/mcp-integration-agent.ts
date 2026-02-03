@@ -6,12 +6,13 @@ import { RateLimiter } from './rate-limiter';
 import { BehavioralController } from './behavioral-controller';
 import { ActionType } from './approval-types';
 import logger from './logger';
-import { ActivityScheduler, ActivityDistribution, ActivityType } from './activity-scheduler';
+import { ActivityScheduler, ActivityDistribution } from './activity-scheduler';
 import { BehaviorRegistry } from './behaviors/behavior-registry';
 import { registerDefaultFactories } from './behaviors/behavior-factories';
 import { mcpTools } from './mcp-tools/tools';
+import { BotInterface, AgentInterface } from './interfaces';
 
-export class MCPIntegrationAgent extends AbstractAgent {
+export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface {
   private bot: ClawstrBot;
   private eventSystem: EventSystem;
   private intrinsicMotivationPrompt: string;
@@ -87,8 +88,7 @@ export class MCPIntegrationAgent extends AbstractAgent {
     Respect community guidelines and be genuinely helpful.`;
 
     // Initialize behavior registry and register default behaviors
-    const behaviorRegistry = BehaviorRegistry.getInstance({ autoRegisterDefaults: false });
-    registerDefaultFactories(behaviorRegistry);
+    const behaviorRegistry = BehaviorRegistry.getInstance({ autoRegisterDefaults: true });
 
     // Initialize the activity scheduler with default distribution (safe values: post and reply = 0)
     this.activityScheduler = new ActivityScheduler({
@@ -110,7 +110,21 @@ export class MCPIntegrationAgent extends AbstractAgent {
       userId: this.userId,
       behaviorRegistry,
       contextData: {
-        agent: this // Pass the agent instance to behaviors
+        agent: this, // Pass the agent instance to behaviors
+        bot: this.bot, // Pass the bot instance to behaviors
+        // Also pass memory methods directly for easier access
+        addMemory: (content: string, type: string, priority?: number, tags?: string[], metadata?: Record<string, any>) => {
+          if (this.bot) {
+            return this.bot.addMemory(content, type, priority, tags, metadata);
+          }
+          return '';
+        },
+        searchMemories: (query: string, limit?: number) => {
+          if (this.bot) {
+            return this.bot.searchMemories(query, limit);
+          }
+          return [];
+        }
       }
     });
 
@@ -157,6 +171,9 @@ export class MCPIntegrationAgent extends AbstractAgent {
     for (const tool of mcpTools) {
       this.tools.set(tool.name, tool);
     }
+
+    // Initialize agent actions
+    this.initializeActions();
   }
 
   protected initializeActions(): void {
@@ -243,6 +260,25 @@ export class MCPIntegrationAgent extends AbstractAgent {
         return await this.createContent(params.topic as string, params.title as string, params.content as string, params.tags as string[]);
       }
     });
+
+    this.addAction({
+      id: 'think',
+      name: 'think',
+      description: 'Perform deep thinking and reflection on a given prompt',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'The prompt or topic to think about'
+          }
+        },
+        required: ['prompt']
+      },
+      handler: async (params: Record<string, any>) => {
+        return await this.think(params.prompt as string);
+      }
+    });
   }
 
   private async exploreCommunity(topic: string, maxPosts: number): Promise<any> {
@@ -304,6 +340,17 @@ export class MCPIntegrationAgent extends AbstractAgent {
       summary: explorationSummary
     }, 'mcp-agent');
 
+    // Store the exploration results in memory
+    if (this.bot) {
+      this.bot.addMemory(
+        `Explored community on topic: ${topic}. Found ${searchResults.length} posts.`,
+        'observation',
+        6,
+        ['explore', 'community', topic],
+        { topic, resultsCount: searchResults.length, timestamp: new Date().toISOString() }
+      );
+    }
+
     return explorationSummary;
   }
 
@@ -351,6 +398,17 @@ export class MCPIntegrationAgent extends AbstractAgent {
       result = await replyTool.handler({ postId, content: enhancedContent });
 
       logger.info('Reply created successfully', { userId: this.userId, postId, result });
+
+      // Store the reply in memory
+      if (this.bot) {
+        this.bot.addMemory(
+          `Replied to post ${postId}: ${content.substring(0, 100)}...`,
+          'interaction',
+          5,
+          ['reply', 'engagement'],
+          { postId, content, timestamp: new Date().toISOString() }
+        );
+      }
     } else if (engagementType === 'upvote') {
       // Check behavioral controls for upvotes
       const behaviorCheck = await this.behavioralController.checkBehavior(this.userId, ActionType.SEND_MESSAGE);
@@ -457,21 +515,109 @@ export class MCPIntegrationAgent extends AbstractAgent {
       result
     }, 'mcp-agent');
 
+    // Store the created content in memory
+    if (this.bot) {
+      this.bot.addMemory(
+        `Created content on topic ${topic}: ${title}. Content: ${content.substring(0, 100)}...`,
+        'creation',
+        7,
+        ['create', 'content', topic, ...(tags || [])],
+        { topic, title, content, tags, timestamp: new Date().toISOString() }
+      );
+    }
+
     return result;
+  }
+
+  private async think(prompt: string): Promise<any> {
+    logger.info(`Agent thinking about: ${prompt}`, {
+      userId: this.userId,
+      prompt
+    });
+
+    try {
+      // Check behavioral controls for thinking (usually lenient)
+      const behaviorCheck = await this.behavioralController.checkBehavior(this.userId, ActionType.SEND_MESSAGE);
+      if (!behaviorCheck.allowed) {
+        logger.warn(`Behavior check failed for thinking: ${behaviorCheck.reason}`, {
+          userId: this.userId,
+          reason: behaviorCheck.reason,
+          requiresApproval: behaviorCheck.requiresApproval
+        });
+
+        return {
+          thoughts: `Cannot process thought: ${behaviorCheck.reason}`,
+          processedAt: new Date(),
+          error: behaviorCheck.reason,
+          retryAfter: behaviorCheck.requiresApproval ? undefined : behaviorCheck.approvalRequest ? undefined : 3600
+        };
+      }
+
+      // Use the bot to generate thoughts based on the prompt
+      const thoughts = await this.bot.runWithSystemPrompt(
+        `Given the following prompt, provide a thoughtful reflection or analysis:\n\n${prompt}`,
+        this.intrinsicMotivationPrompt
+      );
+
+      const result = {
+        prompt,
+        thoughts,
+        processedAt: new Date()
+      };
+
+      logger.info('Thinking completed successfully', { 
+        userId: this.userId, 
+        prompt: prompt.substring(0, 50) + (prompt.length > 50 ? '...' : '') 
+      });
+
+      // Emit event for dashboard
+      this.eventSystem.emit('agent_thinking', {
+        agentId: this.config.id,
+        prompt,
+        result
+      }, 'mcp-agent');
+
+      // Store the thoughts in memory
+      if (this.bot) {
+        this.bot.addMemory(
+          `Thoughts on: ${prompt}. Result: ${thoughts.substring(0, 100)}...`,
+          'thought',
+          7,
+          ['think', 'reflection'],
+          { prompt, thoughts, timestamp: new Date().toISOString() }
+        );
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('Error during thinking process:', {
+        userId: this.userId,
+        prompt,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+
+      return {
+        prompt,
+        thoughts: `Error processing thought: ${error instanceof Error ? error.message : String(error)}`,
+        processedAt: new Date(),
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
   }
 
   private calculateRelevance(topic: string, content: string): number {
     // Simple relevance calculation based on keyword matching
     const topicWords = topic.toLowerCase().split(/\s+/);
     const contentLower = content.toLowerCase();
-    
+
     let matches = 0;
     for (const word of topicWords) {
       if (contentLower.includes(word)) {
         matches++;
       }
     }
-    
+
     return matches / topicWords.length;
   }
 

@@ -1,4 +1,3 @@
-import { Message } from './types';
 
 export interface AgentConfig {
   id: string;

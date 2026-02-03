@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { BehaviorRegistry } from './behaviors/behavior-registry';
-import { BaseBehavior, BehaviorExecutionContext, BehaviorResult } from './behaviors/base-behavior';
+import { BehaviorExecutionContext, BehaviorResult } from './behaviors/base-behavior';
 
 export type ActivityType = 'read' | 'think' | 'post' | 'reply' | 'idle' | string;
 

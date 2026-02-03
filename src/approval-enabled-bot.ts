@@ -1,7 +1,6 @@
 import { ClawstrBot } from './bot';
-import { Message } from './types';
 import { ApprovalSystem } from './approval-system';
-import { ApprovalRequest, ApprovalStatus, ActionType } from './approval-types';
+import { ApprovalRequest, ActionType } from './approval-types';
 import { Account } from './account-manager';
 
 export interface ApprovalEnabledBotConfig {

@@ -5,14 +5,17 @@ import { StringOutputParser } from "@langchain/core/output_parsers";
 import { LowLevelBotController } from './low-level-controller';
 import { BotConfig, Message, BotError } from './types';
 import { createLLM } from './llm-factory';
+import { PrioritizedMemorySystem, MemoryItem } from './memory-system';
+import { BotInterface } from './interfaces';
 
-export class ClawstrBot {
+export class ClawstrBot implements BotInterface {
   private llm: ChatOpenAI;
   private history: Message[] = [];
   private config: BotConfig;
   private controller: LowLevelBotController;
   private errors: BotError[] = [];
   private eventCallbacks: Map<string, Function> = new Map();
+  private memorySystem: PrioritizedMemorySystem;
 
   constructor(config: BotConfig) {
     this.validateConfig(config);
@@ -22,6 +25,13 @@ export class ClawstrBot {
 
     // Pass the LLM instance to the controller
     this.controller = new LowLevelBotController(config, this.llm);
+
+    // Initialize the memory system with default configuration
+    const memorySize = config.memorySize || 1000; // Default to 1000 items
+    this.memorySystem = new PrioritizedMemorySystem({
+      maxSize: memorySize,
+      defaultPriority: 5
+    });
   }
 
   private validateConfig(config: BotConfig): void {
@@ -250,13 +260,66 @@ export class ClawstrBot {
     }
   }
 
+  // Memory system methods
+  addMemory(content: string, type: string, priority?: number, tags?: string[], metadata?: Record<string, any>): string {
+    return this.memorySystem.add({
+      content,
+      type,
+      priority: priority ?? 5,
+      tags,
+      metadata
+    });
+  }
+
+  getMemory(id: string): MemoryItem | undefined {
+    return this.memorySystem.get(id);
+  }
+
+  updateMemory(id: string, updates: Partial<Omit<MemoryItem, 'id' | 'timestamp'>>): boolean {
+    return this.memorySystem.update(id, updates);
+  }
+
+  removeMemory(id: string): boolean {
+    return this.memorySystem.remove(id);
+  }
+
+  findMemoriesByType(type: string, limit?: number): MemoryItem[] {
+    return this.memorySystem.findByType(type, limit);
+  }
+
+  findMemoriesByTag(tag: string, limit?: number): MemoryItem[] {
+    return this.memorySystem.findByTag(tag, limit);
+  }
+
+  searchMemories(query: string, limit?: number): MemoryItem[] {
+    return this.memorySystem.search(query, limit);
+  }
+
+  getAllMemories(limit?: number): MemoryItem[] {
+    return this.memorySystem.getAll(limit);
+  }
+
+  getMemoriesByPriority(minPriority: number, maxPriority: number, limit?: number): MemoryItem[] {
+    return this.memorySystem.getByPriority(minPriority, maxPriority, limit);
+  }
+
+  getMemoryStats(): { size: number; maxSize: number; utilization: number } {
+    return this.memorySystem.getStats();
+  }
+
+  clearMemory(): void {
+    this.memorySystem.clear();
+  }
+
   // State management
   getState(): any {
     return {
       config: { ...this.config },
       history: [...this.history],
       errors: [...this.errors],
-      controllerState: this.controller.getState()
+      controllerState: this.controller.getState(),
+      memoryStats: this.memorySystem.getStats(),
+      memoryItems: this.getAllMemories()
     };
   }
 
@@ -278,6 +341,13 @@ export class ClawstrBot {
 
     if (state.controllerState) {
       this.controller.setState(state.controllerState);
+    }
+
+    if (state.memoryItems && Array.isArray(state.memoryItems)) {
+      this.memorySystem.clear();
+      for (const memoryItem of state.memoryItems) {
+        this.memorySystem.add(memoryItem);
+      }
     }
   }
 }

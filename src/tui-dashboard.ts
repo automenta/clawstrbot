@@ -1,8 +1,7 @@
 import * as blessed from 'blessed';
 const contrib: any = require('blessed-contrib');
-import { ControlMode } from './control-manager';
-import { Message } from './types';
 import { ActivityDistribution } from './activity-scheduler';
+import { MemoryItem } from './memory-system';
 
 export interface DashboardOptions {
   title?: string;
@@ -19,10 +18,11 @@ export class TUIDashboard {
   private statusLine!: blessed.Widgets.TextElement;
   private modeIndicator!: blessed.Widgets.TextElement;
 
-  private isRunning: boolean = false;
+  private isBotRunning: boolean = true; // Start in running state by default
   private messages: string[] = [];
   private activityControls!: blessed.Widgets.BoxElement;
   private behaviorControls!: blessed.Widgets.BoxElement;
+  private memoryList!: blessed.Widgets.ListElement;
   private currentActivityDistribution: ActivityDistribution = {
     read: 30,
     think: 30,
@@ -30,6 +30,7 @@ export class TUIDashboard {
     reply: 0,
     idle: 40
   };
+  private currentMemories: MemoryItem[] = [];
   private behaviorManagementCallback?: (action: string, params?: any) => void;
 
   constructor(options: DashboardOptions = {}) {
@@ -56,7 +57,7 @@ export class TUIDashboard {
 
   private createWidgets(): void {
     // Bot Status Panel (top left)
-    this.botStatus = this.grid.set(0, 0, 4, 3, blessed.box, {
+    this.botStatus = this.grid.set(0, 0, 3, 3, blessed.box, {
       label: 'Bot Status',
       border: { type: 'line' },
       style: { border: { fg: 'cyan' } },
@@ -65,7 +66,7 @@ export class TUIDashboard {
     });
 
     // Activity Controls Panel (top middle-left)
-    this.activityControls = this.grid.set(0, 3, 4, 3, blessed.box, {
+    this.activityControls = this.grid.set(0, 3, 3, 3, blessed.box, {
       label: 'Activity Distribution',
       border: { type: 'line' },
       style: { border: { fg: 'magenta' } },
@@ -74,7 +75,7 @@ export class TUIDashboard {
     });
 
     // Behavior Controls Panel (top middle-right)
-    this.behaviorControls = this.grid.set(0, 6, 4, 3, blessed.box, {
+    this.behaviorControls = this.grid.set(0, 6, 3, 3, blessed.box, {
       label: 'Behavior Management',
       border: { type: 'line' },
       style: { border: { fg: 'blue' } },
@@ -83,16 +84,34 @@ export class TUIDashboard {
     });
 
     // Control Panel (top right)
-    this.controlPanel = this.grid.set(0, 9, 4, 3, blessed.box, {
+    this.controlPanel = this.grid.set(0, 9, 3, 3, blessed.box, {
       label: 'Controls',
       border: { type: 'line' },
       style: { border: { fg: 'green' } },
       padding: 1,
-      content: 'Press [M] Manual Mode\nPress [A] Auto Mode\nPress [S] Stop\nPress [Q] Quit\n\nActivity Controls:\n[1] Increase Read\n[2] Decrease Read\n[3] Increase Think\n[4] Decrease Think\n[5] Increase Post\n[6] Decrease Post\n[7] Increase Reply\n[8] Decrease Reply\n[9] Increase Idle\n[0] Decrease Idle\n\nBehavior Controls:\n[B] List Behaviors\n[E] Enable Behavior\n[D] Disable Behavior'
+      content: 'Press [R] Run/Pause\nPress [S] Stop\nPress [Q] Quit\n\nActivity Controls:\n[1] Increase Read\n[2] Decrease Read\n[3] Increase Think\n[4] Decrease Think\n[5] Increase Post\n[6] Decrease Post\n[7] Increase Reply\n[8] Decrease Reply\n[9] Increase Idle\n[0] Decrease Idle\n\nBehavior Controls:\n[B] List Behaviors\n[E] Enable Behavior\n[D] Disable Behavior'
     });
 
-    // Message Log (middle)
-    this.messageLog = this.grid.set(4, 0, 6, 12, blessed.list, {
+    // Memory List (middle left)
+    this.memoryList = this.grid.set(3, 0, 6, 6, blessed.list, {
+      label: 'Active Memories',
+      border: { type: 'line' },
+      style: {
+        border: { fg: 'magenta' },
+        selected: { bg: 'blue' },
+        item: { fg: 'white' }
+      },
+      padding: 1,
+      mouse: true,
+      keys: true,
+      vi: true,
+      interactive: false,
+      scrollback: 1000,
+      tags: true
+    });
+
+    // Message Log (middle right)
+    this.messageLog = this.grid.set(3, 6, 6, 6, blessed.list, {
       label: 'Message Log',
       border: { type: 'line' },
       style: { border: { fg: 'yellow' }, selected: { bg: 'blue' } },
@@ -105,16 +124,16 @@ export class TUIDashboard {
     });
 
     // Status Line (bottom)
-    this.statusLine = this.grid.set(10, 0, 1, 10, blessed.text, {
+    this.statusLine = this.grid.set(9, 0, 1, 10, blessed.text, {
       content: 'Ready',
       style: { fg: 'white', bg: 'blue' },
       padding: 1
     });
 
-    // Mode Indicator (bottom right)
-    this.modeIndicator = this.grid.set(10, 10, 1, 2, blessed.text, {
-      content: 'MANUAL',
-      style: { fg: 'black', bg: 'red' },
+    // Run/Pause Indicator (bottom right)
+    this.modeIndicator = this.grid.set(9, 10, 1, 2, blessed.text, {
+      content: 'RUN',
+      style: { fg: 'black', bg: 'green' },
       align: 'center'
     });
 
@@ -123,13 +142,9 @@ export class TUIDashboard {
   }
 
   private bindEvents(): void {
-    // Mode switching
-    this.screen.key(['m'], () => {
-      this.setMode(ControlMode.MANUAL);
-    });
-
-    this.screen.key(['a'], () => {
-      this.setMode(ControlMode.AUTOMATIC);
+    // Run/Pause toggle
+    this.screen.key(['r'], () => {
+      this.toggleRunPause();
     });
 
     this.screen.key(['s'], () => {
@@ -180,11 +195,21 @@ export class TUIDashboard {
     });
 
     // Allow scrolling in message log
-    this.messageLog.on('keypress', (ch: string, key: any) => {
+    this.messageLog.on('keypress', (_, key: any) => {
       if (key.name === 'up') {
         this.messageLog.up(1);
       } else if (key.name === 'down') {
         this.messageLog.down(1);
+      }
+      this.screen.render();
+    });
+
+    // Allow scrolling in memory list
+    this.memoryList.on('keypress', (_, key: any) => {
+      if (key.name === 'up') {
+        this.memoryList.up(1);
+      } else if (key.name === 'down') {
+        this.memoryList.down(1);
       }
       this.screen.render();
     });
@@ -226,12 +251,6 @@ export class TUIDashboard {
            `Total behaviors: Unknown`;
   }
 
-  private updateBehaviorControlsContent(): void {
-    // This would be called when behavior information is updated
-    // For now, we'll just update the display
-    this.behaviorControls.setContent(this.getBehaviorControlsContent());
-    this.screen.render();
-  }
 
   private adjustActivity(activity: keyof ActivityDistribution, delta: number): void {
     // Adjust the activity value
@@ -325,19 +344,56 @@ export class TUIDashboard {
     this.screen.render();
   }
 
-  public setMode(mode: ControlMode): void {
-    const modeText = mode.toUpperCase();
-    this.modeIndicator.setContent(modeText);
-    
-    // Change color based on mode
-    if (mode === ControlMode.AUTOMATIC) {
+  private toggleRunPause(): void {
+    this.isBotRunning = !this.isBotRunning;
+    const statusText = this.isBotRunning ? 'RUN' : 'PAUSE';
+    this.modeIndicator.setContent(statusText);
+
+    // Change color based on state
+    if (this.isBotRunning) {
       this.modeIndicator.style.bg = 'green';
     } else {
       this.modeIndicator.style.bg = 'red';
     }
-    
-    this.statusLine.setContent(`Switched to ${modeText} mode`);
+
+    this.statusLine.setContent(`Bot is now ${this.isBotRunning ? 'running' : 'paused'}`);
     this.screen.render();
+  }
+
+  public isPaused(): boolean {
+    return !this.isBotRunning;
+  }
+
+  public isRunning(): boolean {
+    return this.isBotRunning;
+  }
+
+  public updateMemories(memories: MemoryItem[]): void {
+    this.currentMemories = [...memories]; // Create a copy to avoid reference issues
+
+    // Format memory items for display
+    const formattedMemories = this.currentMemories.map(memory => {
+      // Truncate content if too long
+      const contentPreview = memory.content.length > 50
+        ? memory.content.substring(0, 50) + '...'
+        : memory.content;
+
+      return `[${memory.priority}] ${memory.type}: ${contentPreview}`;
+    });
+
+    // Update the memory list
+    this.memoryList.setItems(formattedMemories);
+
+    // Auto-select the last item if there are items
+    if (formattedMemories.length > 0) {
+      this.memoryList.select(formattedMemories.length - 1);
+    }
+
+    this.screen.render();
+  }
+
+  public getMemoryList(): MemoryItem[] {
+    return [...this.currentMemories];
   }
 
   public setStatus(text: string): void {
@@ -346,17 +402,17 @@ export class TUIDashboard {
   }
 
   public start(): void {
-    this.isRunning = true;
+    this.isBotRunning = true;
     this.setStatus('Dashboard started');
   }
 
   public stop(): void {
-    this.isRunning = false;
+    this.isBotRunning = false;
     this.setStatus('Dashboard stopped');
   }
 
   public isStarted(): boolean {
-    return this.isRunning;
+    return this.isBotRunning;
   }
 
   public render(): void {

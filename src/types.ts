@@ -3,6 +3,7 @@ export interface BotConfig {
   model?: string;
   temperature?: number;
   baseUrl?: string;
+  memorySize?: number;
 }
 
 export interface Message {

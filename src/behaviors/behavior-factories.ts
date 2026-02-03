@@ -1,7 +1,6 @@
-import { 
-  BehaviorFactory, 
-  BehaviorType, 
-  BaseBehavior 
+import {
+  BehaviorFactory,
+  BehaviorType
 } from './base-behavior';
 import { 
   ReadBehavior, 

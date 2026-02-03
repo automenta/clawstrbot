@@ -3,6 +3,8 @@ import { BaseBehavior, BehaviorExecutionContext, BehaviorResult } from './base-b
 // Define a minimal interface for what we expect the agent to be able to do
 interface AgentCapabilities {
   executeAction(actionName: string, params: Record<string, any>): Promise<any>;
+  addMemory?(content: string, type: string, priority?: number, tags?: string[], metadata?: Record<string, any>): string;
+  searchMemories?(query: string, limit?: number): any[];
 }
 
 export interface ReadBehaviorConfig {
@@ -45,6 +47,23 @@ export class ReadBehavior extends BaseBehavior {
         }
 
         data = result.result;
+
+        // Store the reading results in memory
+        if (agent.addMemory) {
+          const query = this.readConfig.searchQuery || 'unknown';
+          const memoryContent = `Read results for query "${query}": ${JSON.stringify(result.result)}`;
+          agent.addMemory(
+            memoryContent,
+            'observation',
+            6, // Medium-high priority for observations
+            ['read', 'search', query],
+            {
+              query,
+              results: result.result,
+              timestamp: new Date().toISOString()
+            }
+          );
+        }
       } else {
         // Fallback to simulation if no agent attached
         console.log(`[ReadBehavior] No agent found in context, simulating reading...`);
@@ -134,7 +153,16 @@ export class ThinkBehavior extends BaseBehavior {
         // We'll use a generic prompt if none provided in context
         const prompt = context.thinkPrompt || "Reflect on the current state and determine next steps.";
 
-        const result = await agent.executeAction('think', { prompt });
+        // Retrieve relevant memories to inform the thinking process
+        let relevantMemories = [];
+        if (agent.searchMemories) {
+          relevantMemories = agent.searchMemories(prompt, 5); // Get up to 5 relevant memories
+        }
+
+        const result = await agent.executeAction('think', {
+          prompt,
+          context: relevantMemories.length > 0 ? `Context from memory: ${JSON.stringify(relevantMemories)}` : undefined
+        });
 
         if (!result.success) {
           throw new Error(result.error || 'Unknown error during thinking');
@@ -144,6 +172,23 @@ export class ThinkBehavior extends BaseBehavior {
           thoughts: result.result,
           processedAt: new Date()
         };
+
+        // Store the thoughts in memory
+        if (agent.addMemory) {
+          const memoryContent = `Thoughts on: ${prompt}. Result: ${JSON.stringify(result.result)}`;
+          agent.addMemory(
+            memoryContent,
+            'thought',
+            7, // High priority for thoughts
+            ['think', 'reflection'],
+            {
+              prompt,
+              result: result.result,
+              timestamp: new Date().toISOString(),
+              contextUsed: relevantMemories.length > 0
+            }
+          );
+        }
       } else {
         // Simulation
         const startTime = Date.now();
@@ -231,12 +276,20 @@ export class PostBehavior extends BaseBehavior {
         const title = context.title || `Thoughts on ${topic}`;
         const content = context.content || `I've been thinking about ${topic} and its implications...`;
 
+        // Retrieve relevant memories to inform the post creation
+        let relevantMemories = [];
+        if (agent.searchMemories) {
+          relevantMemories = agent.searchMemories(topic, 3); // Get up to 3 relevant memories about the topic
+        }
+
         console.log(`[PostBehavior] Delegating to agent action: create_content`);
         const result = await agent.executeAction('create_content', {
           topic,
           title,
-          content,
-          tags: ['ai', 'agent']
+          content: relevantMemories.length > 0
+            ? `${content}\n\nBased on previous thoughts: ${JSON.stringify(relevantMemories.map(m => m.content))}`
+            : content,
+          tags: ['ai', 'agent', ...relevantMemories.flatMap(m => m.tags || [])]
         });
 
         if (!result.success) {
@@ -244,6 +297,25 @@ export class PostBehavior extends BaseBehavior {
         }
 
         data = result.result;
+
+        // Store the post in memory
+        if (agent.addMemory) {
+          const memoryContent = `Posted: ${title}. Content: ${content}`;
+          agent.addMemory(
+            memoryContent,
+            'interaction',
+            5, // Medium priority for interactions
+            ['post', topic, ...relevantMemories.flatMap(m => m.tags || [])],
+            {
+              topic,
+              title,
+              content,
+              postId: result.result?.postId || 'unknown',
+              timestamp: new Date().toISOString(),
+              contextUsed: relevantMemories.length > 0
+            }
+          );
+        }
       } else {
         // Simulation
         const startTime = Date.now();
@@ -330,11 +402,19 @@ export class ReplyBehavior extends BaseBehavior {
         const postId = context.targetPostId || "post-1"; // Default for demo
         const content = context.replyContent || "Interesting perspective! Thanks for sharing.";
 
+        // Retrieve relevant memories to inform the reply
+        let relevantMemories = [];
+        if (agent.searchMemories) {
+          relevantMemories = agent.searchMemories(content, 3); // Get up to 3 relevant memories
+        }
+
         console.log(`[ReplyBehavior] Delegating to agent action: engage_with_post`);
         const result = await agent.executeAction('engage_with_post', {
           postId,
           engagementType: 'reply',
-          content
+          content: relevantMemories.length > 0
+            ? `${content}\n\nBased on previous thoughts: ${JSON.stringify(relevantMemories.map(m => m.content))}`
+            : content
         });
 
         if (!result.success) {
@@ -342,6 +422,24 @@ export class ReplyBehavior extends BaseBehavior {
         }
 
         data = result.result;
+
+        // Store the reply in memory
+        if (agent.addMemory) {
+          const memoryContent = `Replied to post ${postId}: ${content}`;
+          agent.addMemory(
+            memoryContent,
+            'interaction',
+            5, // Medium priority for interactions
+            ['reply', 'engagement'],
+            {
+              postId,
+              content,
+              replyId: result.result?.replyId || 'unknown',
+              timestamp: new Date().toISOString(),
+              contextUsed: relevantMemories.length > 0
+            }
+          );
+        }
       } else {
         // Simulation
         const startTime = Date.now();
