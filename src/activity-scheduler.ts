@@ -26,6 +26,7 @@ export interface ActivitySchedulerConfig {
   enableLogging?: boolean;
   userId?: string; // User ID for context
   behaviorRegistry?: BehaviorRegistry; // Optional behavior registry
+  contextData?: Record<string, any>; // Additional context data to pass to behaviors
 }
 
 export interface ActivityEvent {
@@ -184,7 +185,8 @@ export class ActivityScheduler extends EventEmitter {
         elapsedTimeMs: 0,
         remainingTimeMs: durationMs,
         progress: 0,
-        abortSignal: abortController.signal
+        abortSignal: abortController.signal,
+        ...this.config.contextData // Spread additional context data
       };
 
       // Look for a behavior that matches this activity type

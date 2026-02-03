@@ -1,5 +1,10 @@
 import { BaseBehavior, BehaviorExecutionContext, BehaviorResult } from './base-behavior';
 
+// Define a minimal interface for what we expect the agent to be able to do
+interface AgentCapabilities {
+  executeAction(actionName: string, params: Record<string, any>): Promise<any>;
+}
+
 export interface ReadBehaviorConfig {
   searchQuery?: string;
   maxResults?: number;
@@ -20,24 +25,47 @@ export class ReadBehavior extends BaseBehavior {
 
   async execute(context: BehaviorExecutionContext): Promise<BehaviorResult> {
     try {
-      // This would typically call the MCP tools to search for content
-      // For now, we'll simulate the behavior
       console.log(`[ReadBehavior] Reading content with query: ${this.readConfig.searchQuery}`);
 
-      // Simulate reading activity
-      const startTime = Date.now();
-      while (Date.now() - startTime < 1000 && !context.abortSignal?.aborted) { // Simulate 1 second of reading
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // Check if we have access to the agent to perform real actions
+      const agent = context.agent as AgentCapabilities | undefined;
 
-        // Update context with progress
-        const elapsed = Date.now() - context.startTime.getTime();
-        context.elapsedTimeMs = elapsed;
-        context.remainingTimeMs = context.durationMs - elapsed;
-        context.progress = elapsed / context.durationMs;
+      let data: any;
 
-        if (this.onProgress) {
-          await this.onProgress(context);
+      if (agent && typeof agent.executeAction === 'function') {
+        // Perform real action
+        console.log(`[ReadBehavior] Delegating to agent action: explore_community`);
+        const result = await agent.executeAction('explore_community', {
+          topic: this.readConfig.searchQuery,
+          maxPosts: this.readConfig.maxResults
+        });
+
+        if (!result.success) {
+          throw new Error(result.error || 'Unknown error during exploration');
         }
+
+        data = result.result;
+      } else {
+        // Fallback to simulation if no agent attached
+        console.log(`[ReadBehavior] No agent found in context, simulating reading...`);
+        const startTime = Date.now();
+        while (Date.now() - startTime < 1000 && !context.abortSignal?.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          const elapsed = Date.now() - context.startTime.getTime();
+          context.elapsedTimeMs = elapsed;
+          context.remainingTimeMs = context.durationMs - elapsed;
+          context.progress = elapsed / context.durationMs;
+
+          if (this.onProgress) await this.onProgress(context);
+        }
+
+        data = {
+          query: this.readConfig.searchQuery,
+          resultsCount: this.readConfig.maxResults,
+          simulated: true,
+          processedAt: new Date()
+        };
       }
 
       if (context.abortSignal?.aborted) {
@@ -50,12 +78,8 @@ export class ReadBehavior extends BaseBehavior {
 
       return {
         success: true,
-        message: `Read behavior completed, processed ${this.readConfig.maxResults} items`,
-        data: {
-          query: this.readConfig.searchQuery,
-          resultsCount: this.readConfig.maxResults,
-          processedAt: new Date()
-        },
+        message: `Read behavior completed`,
+        data,
         metadata: { behaviorType: 'read' }
       };
     } catch (error) {
@@ -76,7 +100,6 @@ export class ReadBehavior extends BaseBehavior {
   }
 
   async onProgress(context: BehaviorExecutionContext): Promise<void> {
-    // Emit progress updates
     this.emit('progress', {
       behaviorId: this.getConfig().id,
       context,
@@ -100,20 +123,45 @@ export class ThinkBehavior extends BaseBehavior {
     try {
       console.log(`[ThinkBehavior] Starting thinking activity for user ${context.userId}`);
 
-      // Simulate thinking activity
-      const startTime = Date.now();
-      while (Date.now() - startTime < 2000 && !context.abortSignal?.aborted) { // Simulate 2 seconds of thinking
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // Check if we have access to the agent to perform real actions
+      const agent = context.agent as AgentCapabilities | undefined;
 
-        // Update context with progress
-        const elapsed = Date.now() - context.startTime.getTime();
-        context.elapsedTimeMs = elapsed;
-        context.remainingTimeMs = context.durationMs - elapsed;
-        context.progress = elapsed / context.durationMs;
+      let data: any;
 
-        if (this.onProgress) {
-          await this.onProgress(context);
+      if (agent && typeof agent.executeAction === 'function') {
+        // Perform real action
+        console.log(`[ThinkBehavior] Delegating to agent action: think`);
+        // We'll use a generic prompt if none provided in context
+        const prompt = context.thinkPrompt || "Reflect on the current state and determine next steps.";
+
+        const result = await agent.executeAction('think', { prompt });
+
+        if (!result.success) {
+          throw new Error(result.error || 'Unknown error during thinking');
         }
+
+        data = {
+          thoughts: result.result,
+          processedAt: new Date()
+        };
+      } else {
+        // Simulation
+        const startTime = Date.now();
+        while (Date.now() - startTime < 2000 && !context.abortSignal?.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          const elapsed = Date.now() - context.startTime.getTime();
+          context.elapsedTimeMs = elapsed;
+          context.remainingTimeMs = context.durationMs - elapsed;
+          context.progress = elapsed / context.durationMs;
+
+          if (this.onProgress) await this.onProgress(context);
+        }
+
+        data = {
+          thoughts: 'Deep reflection and analysis performed (simulated)',
+          processedAt: new Date()
+        };
       }
 
       if (context.abortSignal?.aborted) {
@@ -127,10 +175,7 @@ export class ThinkBehavior extends BaseBehavior {
       return {
         success: true,
         message: 'Thinking activity completed',
-        data: {
-          thoughts: 'Deep reflection and analysis performed',
-          processedAt: new Date()
-        },
+        data,
         metadata: { behaviorType: 'think' }
       };
     } catch (error) {
@@ -174,20 +219,50 @@ export class PostBehavior extends BaseBehavior {
     try {
       console.log(`[PostBehavior] Starting posting activity for user ${context.userId}`);
 
-      // Simulate posting activity
-      const startTime = Date.now();
-      while (Date.now() - startTime < 1500 && !context.abortSignal?.aborted) { // Simulate 1.5 seconds of posting
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // Check if we have access to the agent to perform real actions
+      const agent = context.agent as AgentCapabilities | undefined;
 
-        // Update context with progress
-        const elapsed = Date.now() - context.startTime.getTime();
-        context.elapsedTimeMs = elapsed;
-        context.remainingTimeMs = context.durationMs - elapsed;
-        context.progress = elapsed / context.durationMs;
+      let data: any;
 
-        if (this.onProgress) {
-          await this.onProgress(context);
+      if (agent && typeof agent.executeAction === 'function') {
+        // In a real scenario, we'd generate content first or pick from a queue
+        // For now, we'll create some generic content if none provided
+        const topic = context.topic || "AI Agents";
+        const title = context.title || `Thoughts on ${topic}`;
+        const content = context.content || `I've been thinking about ${topic} and its implications...`;
+
+        console.log(`[PostBehavior] Delegating to agent action: create_content`);
+        const result = await agent.executeAction('create_content', {
+          topic,
+          title,
+          content,
+          tags: ['ai', 'agent']
+        });
+
+        if (!result.success) {
+          throw new Error(result.error || 'Unknown error during posting');
         }
+
+        data = result.result;
+      } else {
+        // Simulation
+        const startTime = Date.now();
+        while (Date.now() - startTime < 1500 && !context.abortSignal?.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          const elapsed = Date.now() - context.startTime.getTime();
+          context.elapsedTimeMs = elapsed;
+          context.remainingTimeMs = context.durationMs - elapsed;
+          context.progress = elapsed / context.durationMs;
+
+          if (this.onProgress) await this.onProgress(context);
+        }
+
+        data = {
+          postId: `post_${Date.now()}`,
+          status: 'published (simulated)',
+          processedAt: new Date()
+        };
       }
 
       if (context.abortSignal?.aborted) {
@@ -201,11 +276,7 @@ export class PostBehavior extends BaseBehavior {
       return {
         success: true,
         message: 'Post activity completed',
-        data: {
-          postId: `post_${Date.now()}`,
-          status: 'published',
-          processedAt: new Date()
-        },
+        data,
         metadata: { behaviorType: 'post' }
       };
     } catch (error) {
@@ -249,20 +320,47 @@ export class ReplyBehavior extends BaseBehavior {
     try {
       console.log(`[ReplyBehavior] Starting reply activity for user ${context.userId}`);
 
-      // Simulate reply activity
-      const startTime = Date.now();
-      while (Date.now() - startTime < 1200 && !context.abortSignal?.aborted) { // Simulate 1.2 seconds of replying
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // Check if we have access to the agent to perform real actions
+      const agent = context.agent as AgentCapabilities | undefined;
 
-        // Update context with progress
-        const elapsed = Date.now() - context.startTime.getTime();
-        context.elapsedTimeMs = elapsed;
-        context.remainingTimeMs = context.durationMs - elapsed;
-        context.progress = elapsed / context.durationMs;
+      let data: any;
 
-        if (this.onProgress) {
-          await this.onProgress(context);
+      if (agent && typeof agent.executeAction === 'function') {
+        // We need a post to reply to. Ideally passed in context, or found via search.
+        const postId = context.targetPostId || "post-1"; // Default for demo
+        const content = context.replyContent || "Interesting perspective! Thanks for sharing.";
+
+        console.log(`[ReplyBehavior] Delegating to agent action: engage_with_post`);
+        const result = await agent.executeAction('engage_with_post', {
+          postId,
+          engagementType: 'reply',
+          content
+        });
+
+        if (!result.success) {
+          throw new Error(result.error || 'Unknown error during replying');
         }
+
+        data = result.result;
+      } else {
+        // Simulation
+        const startTime = Date.now();
+        while (Date.now() - startTime < 1200 && !context.abortSignal?.aborted) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          const elapsed = Date.now() - context.startTime.getTime();
+          context.elapsedTimeMs = elapsed;
+          context.remainingTimeMs = context.durationMs - elapsed;
+          context.progress = elapsed / context.durationMs;
+
+          if (this.onProgress) await this.onProgress(context);
+        }
+
+        data = {
+          replyId: `reply_${Date.now()}`,
+          status: 'posted (simulated)',
+          processedAt: new Date()
+        };
       }
 
       if (context.abortSignal?.aborted) {
@@ -276,11 +374,7 @@ export class ReplyBehavior extends BaseBehavior {
       return {
         success: true,
         message: 'Reply activity completed',
-        data: {
-          replyId: `reply_${Date.now()}`,
-          status: 'posted',
-          processedAt: new Date()
-        },
+        data,
         metadata: { behaviorType: 'reply' }
       };
     } catch (error) {

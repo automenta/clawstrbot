@@ -108,7 +108,10 @@ export class MCPIntegrationAgent extends AbstractAgent {
       },
       enableLogging: true,
       userId: this.userId,
-      behaviorRegistry
+      behaviorRegistry,
+      contextData: {
+        agent: this // Pass the agent instance to behaviors
+      }
     });
 
     // Set up event listeners for the activity scheduler
