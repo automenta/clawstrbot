@@ -1,4 +1,4 @@
-import { EnhancedClawstrBot } from './enhanced-bot';
+import { ClawstrBot } from './bot';
 import inquirer from 'inquirer';
 
 export enum ControlMode {
@@ -13,7 +13,7 @@ export interface ControlOptions {
 }
 
 export class ControlManager {
-  private bot: EnhancedClawstrBot;
+  private bot: ClawstrBot;
   private mode: ControlMode = ControlMode.MANUAL;
   private autoPromptInterval: number = 30; // default 30 seconds
   private maxIterations: number = 100; // default max iterations
@@ -21,7 +21,7 @@ export class ControlManager {
   private isRunning: boolean = false;
   private autoPromptCallback?: () => Promise<string>;
 
-  constructor(bot: EnhancedClawstrBot) {
+  constructor(bot: ClawstrBot) {
     this.bot = bot;
   }
 

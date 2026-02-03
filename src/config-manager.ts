@@ -1,5 +1,5 @@
 import * as dotenv from 'dotenv';
-import { BotConfig } from './bot';
+import { BotConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 

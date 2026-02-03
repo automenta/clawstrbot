@@ -1,4 +1,4 @@
-import { Message } from './enhanced-bot';
+import { Message } from './types';
 
 export interface AgentConfig {
   id: string;

@@ -1,5 +1,6 @@
-import { EnhancedClawstrBot } from './enhanced-bot';
-import { LMReasoningAgent, LMTool } from './lm-reasoning-agent';
+import { ClawstrBot } from './bot';
+import { LMReasoningAgent } from './lm-reasoning-agent';
+import { LMTool } from './types';
 import { EventSystem } from './event-system';
 
 // Example tools for the agent
@@ -87,10 +88,10 @@ const exampleTools: LMTool[] = [
 
 export class ExampleAgentImplementation {
   private agent: LMReasoningAgent;
-  private bot: EnhancedClawstrBot;
+  private bot: ClawstrBot;
   private eventSystem: EventSystem;
 
-  constructor(bot: EnhancedClawstrBot, eventSystem: EventSystem) {
+  constructor(bot: ClawstrBot, eventSystem: EventSystem) {
     this.bot = bot;
     this.eventSystem = eventSystem;
 

@@ -1,15 +1,16 @@
-import { EnhancedClawstrBot, Message } from './enhanced-bot';
+import { ClawstrBot } from './bot';
+import { Message } from './types';
 import { ApprovalSystem } from './approval-system';
 import { ApprovalRequest, ApprovalStatus, ActionType } from './approval-types';
 import { Account } from './account-manager';
 
 export interface ApprovalEnabledBotConfig {
-  bot: EnhancedClawstrBot;
+  bot: ClawstrBot;
   approvalSystem: ApprovalSystem;
 }
 
 export class ApprovalEnabledBot {
-  private bot: EnhancedClawstrBot;
+  private bot: ClawstrBot;
   private approvalSystem: ApprovalSystem;
 
   constructor(config: ApprovalEnabledBotConfig) {
@@ -173,7 +174,7 @@ export class ApprovalEnabledBot {
   }
 
   // Access to underlying systems
-  getBot(): EnhancedClawstrBot {
+  getBot(): ClawstrBot {
     return this.bot;
   }
 

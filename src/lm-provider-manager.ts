@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { BotConfig } from './enhanced-bot';
+import { BotConfig } from './types';
 
 export enum LMProviderType {
   OLLAMA = 'ollama',

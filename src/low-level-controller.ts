@@ -2,7 +2,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
 import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
-import { Message, BotConfig } from './bot';
+import { Message, BotConfig } from './types';
 
 export interface LowLevelBotControllerOptions {
   enableDirectAccess?: boolean;

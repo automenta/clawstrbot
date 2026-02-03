@@ -1,5 +1,5 @@
-import { EnhancedClawstrBot } from './enhanced-bot';
-import { LMReasoningAgent, LMTool } from './lm-reasoning-agent';
+import { ClawstrBot } from './bot';
+import { LMTool } from './types';
 import { EventSystem } from './event-system';
 import { AbstractAgent } from './abstract-agent';
 import { RateLimiter } from './rate-limiter';
@@ -196,7 +196,7 @@ const mcpTools: LMTool[] = [
 ];
 
 export class MCPIntegrationAgent extends AbstractAgent {
-  private bot: EnhancedClawstrBot;
+  private bot: ClawstrBot;
   private eventSystem: EventSystem;
   private intrinsicMotivationPrompt: string;
   private tools: Map<string, LMTool> = new Map();
@@ -205,7 +205,7 @@ export class MCPIntegrationAgent extends AbstractAgent {
   private userId: string;
   private activityScheduler: ActivityScheduler;
 
-  constructor(bot: EnhancedClawstrBot, eventSystem: EventSystem, userId: string = 'anonymous') {
+  constructor(bot: ClawstrBot, eventSystem: EventSystem, userId: string = 'anonymous') {
     super({
       id: 'mcp-integration-agent',
       name: 'MCP Integration Agent',

@@ -3,7 +3,7 @@
 import { program } from 'commander';
 import chalk from 'chalk';
 import figlet from 'figlet';
-import { EnhancedClawstrBot } from './enhanced-bot';
+import { ClawstrBot } from './bot';
 import { BotManager } from './bot-manager';
 import { ConfigManager } from './config-manager';
 import { ControlManager, ControlMode } from './control-manager';
@@ -139,16 +139,16 @@ async function main() {
   }
 
   // Create or restore bot
-  let bot: EnhancedClawstrBot;
+  let bot: ClawstrBot;
   if (sessionData) {
     console.log(chalk.green(`Restoring bot from session: ${options.session}`));
-    bot = new EnhancedClawstrBot(sessionData.config);
+    bot = new ClawstrBot(sessionData.config);
 
     // Restore history
     bot.setHistory(sessionData.history);
   } else {
     console.log(chalk.green(`Creating new bot session: ${options.session}`));
-    bot = new EnhancedClawstrBot(botConfig);
+    bot = new ClawstrBot(botConfig);
   }
 
   // If approval system is enabled, wrap the bot

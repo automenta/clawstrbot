@@ -1,7 +1,7 @@
 import * as blessed from 'blessed';
 const contrib: any = require('blessed-contrib');
 import { ControlMode } from './control-manager';
-import { Message } from './bot';
+import { Message } from './types';
 import { ActivityDistribution } from './activity-scheduler';
 
 export interface DashboardOptions {

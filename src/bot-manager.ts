@@ -1,11 +1,12 @@
-import { EnhancedClawstrBot, BotConfig } from './enhanced-bot';
+import { ClawstrBot } from './bot';
+import { BotConfig } from './types';
 
 export class BotManager {
-  private bots: Map<string, EnhancedClawstrBot> = new Map();
+  private bots: Map<string, ClawstrBot> = new Map();
   private activeBotId: string | null = null;
 
-  createBot(id: string, config: BotConfig): EnhancedClawstrBot {
-    const bot = new EnhancedClawstrBot(config);
+  createBot(id: string, config: BotConfig): ClawstrBot {
+    const bot = new ClawstrBot(config);
     this.bots.set(id, bot);
 
     if (!this.activeBotId) {
@@ -15,7 +16,7 @@ export class BotManager {
     return bot;
   }
 
-  getBot(id: string): EnhancedClawstrBot | undefined {
+  getBot(id: string): ClawstrBot | undefined {
     return this.bots.get(id);
   }
 
@@ -27,7 +28,7 @@ export class BotManager {
     return false;
   }
 
-  getActiveBot(): EnhancedClawstrBot | null {
+  getActiveBot(): ClawstrBot | null {
     if (this.activeBotId) {
       return this.bots.get(this.activeBotId) || null;
     }
@@ -45,7 +46,7 @@ export class BotManager {
     return this.bots.delete(id);
   }
 
-  getAllBots(): Map<string, EnhancedClawstrBot> {
+  getAllBots(): Map<string, ClawstrBot> {
     return new Map(this.bots);
   }
 }

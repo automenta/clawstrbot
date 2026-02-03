@@ -1,22 +1,16 @@
-import { EnhancedClawstrBot } from './enhanced-bot';
+import { ClawstrBot } from './bot';
 import { AbstractAgent, AgentConfig, AgentAction, AgentActionResult } from './abstract-agent';
-
-export interface LMTool {
-  name: string;
-  description: string;
-  schema: any; // JSON Schema object
-  handler: (params: any) => Promise<any>;
-}
+import { LMTool } from './types';
 
 export interface LMReasoningAgentConfig extends AgentConfig {
-  bot: EnhancedClawstrBot;
+  bot: ClawstrBot;
   tools?: LMTool[];
   maxIterations?: number;
   reasoningModel?: string;
 }
 
 export class LMReasoningAgent extends AbstractAgent {
-  private bot: EnhancedClawstrBot;
+  private bot: ClawstrBot;
   private tools: Map<string, LMTool> = new Map();
   private maxIterations: number;
   private reasoningModel: string;
