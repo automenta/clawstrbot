@@ -1,3 +1,6 @@
+import { ActionType } from './approval-types';
+import logger from './logger';
+
 export interface RateLimitConfig {
   post: {
     maxPerHour: number;
@@ -55,54 +58,70 @@ export class RateLimiter {
     };
   }
 
-  async checkRateLimit(userId: string, action: 'post' | 'reply' | 'search' | 'message'): Promise<{ allowed: boolean; retryAfter?: number; message?: string }> {
+  async checkRateLimit(userId: string, action: ActionType | string): Promise<{ allowed: boolean; retryAfter?: number; message?: string }> {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+    // Map ActionType to rate limit category
+    let category: 'post' | 'reply' | 'search' | 'message';
+    if (action === ActionType.POST) category = 'post';
+    else if (action === ActionType.REPLY) category = 'reply';
+    else if (action === ActionType.SEND_MESSAGE) category = 'message';
+    else if (action === 'search' || action === 'search_posts') category = 'search';
+    else category = 'message'; // Default fallback
+
+    logger.debug(`Checking rate limit for user ${userId}, action ${action} (category: ${category})`);
+
     // Count activities in the last hour
     const hourActivities = this.activityLog.filter(record => 
       record.userId === userId && 
-      record.action === action && 
+      this.mapActionToCategory(record.action) === category &&
       record.timestamp > hourAgo
     ).length;
 
     // Count activities in the last day
     const dayActivities = this.activityLog.filter(record => 
       record.userId === userId && 
-      record.action === action && 
+      this.mapActionToCategory(record.action) === category &&
       record.timestamp > dayAgo
     ).length;
 
     // Check hourly limit
-    const hourlyLimit = this.config[action].maxPerHour;
+    const hourlyLimit = this.config[category].maxPerHour;
     if (hourActivities >= hourlyLimit) {
       const nextReset = new Date(hourAgo.getTime() + 60 * 60 * 1000); // Next hour
       const retryAfter = Math.ceil((nextReset.getTime() - now.getTime()) / 1000); // in seconds
       
+      const message = `Hourly limit exceeded for ${category}s. Limit: ${hourlyLimit} per hour.`;
+      logger.warn(`Rate limit exceeded for user ${userId}: ${message}`);
+
       return {
         allowed: false,
         retryAfter,
-        message: `Hourly limit exceeded for ${action}s. Limit: ${hourlyLimit} per hour.`
+        message
       };
     }
 
     // Check daily limit
-    const dailyLimit = this.config[action].maxPerDay;
+    const dailyLimit = this.config[category].maxPerDay;
     if (dayActivities >= dailyLimit) {
       const nextReset = new Date(dayAgo.getTime() + 24 * 60 * 60 * 1000); // Next day
       const retryAfter = Math.ceil((nextReset.getTime() - now.getTime()) / 1000); // in seconds
       
+      const message = `Daily limit exceeded for ${category}s. Limit: ${dailyLimit} per day.`;
+      logger.warn(`Rate limit exceeded for user ${userId}: ${message}`);
+
       return {
         allowed: false,
         retryAfter,
-        message: `Daily limit exceeded for ${action}s. Limit: ${dailyLimit} per day.`
+        message
       };
     }
 
     // If allowed, record the activity
     this.activityLog.push({
-      action,
+      action: typeof action === 'string' ? action : String(action),
       timestamp: now,
       userId
     });
@@ -112,6 +131,13 @@ export class RateLimiter {
     this.activityLog = this.activityLog.filter(record => record.timestamp > cutoff);
 
     return { allowed: true };
+  }
+
+  private mapActionToCategory(action: string): 'post' | 'reply' | 'search' | 'message' {
+    if (action === ActionType.POST || action === 'post') return 'post';
+    if (action === ActionType.REPLY || action === 'reply') return 'reply';
+    if (action === 'search' || action === 'search_posts') return 'search';
+    return 'message';
   }
 
   updateConfig(newConfig: Partial<RateLimitConfig>): void {
@@ -130,28 +156,28 @@ export class RateLimiter {
   }
 
   // Get usage statistics
-  getUsage(userId: string, action: 'post' | 'reply' | 'search' | 'message'): { hourly: number; daily: number; hourlyLimit: number; dailyLimit: number } {
+  getUsage(userId: string, category: 'post' | 'reply' | 'search' | 'message'): { hourly: number; daily: number; hourlyLimit: number; dailyLimit: number } {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
     const hourly = this.activityLog.filter(record => 
       record.userId === userId && 
-      record.action === action && 
+      this.mapActionToCategory(record.action) === category &&
       record.timestamp > hourAgo
     ).length;
 
     const daily = this.activityLog.filter(record => 
       record.userId === userId && 
-      record.action === action && 
+      this.mapActionToCategory(record.action) === category &&
       record.timestamp > dayAgo
     ).length;
 
     return {
       hourly,
       daily,
-      hourlyLimit: this.config[action].maxPerHour,
-      dailyLimit: this.config[action].maxPerDay
+      hourlyLimit: this.config[category].maxPerHour,
+      dailyLimit: this.config[category].maxPerDay
     };
   }
 
