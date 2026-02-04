@@ -115,8 +115,8 @@ export class ClawstrBot implements BotInterface {
       // Create a chain to process the input
       const chain = RunnableSequence.from([
         (input: BaseMessage[]) => input,
-        this.llm,
-        new StringOutputParser()
+        this.llm as any,
+        new StringOutputParser() as any
       ]);
 
       // Process the input
