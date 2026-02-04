@@ -53,12 +53,12 @@ export class PrioritizedMemorySystem extends EventEmitter {
 
     this.memory.set(id, memoryItem);
     this.size++;
-    
+
     // Re-sort the keys
     this.resortKeys();
-    
+
     this.emit('memoryAdded', memoryItem);
-    
+
     return id;
   }
 
@@ -183,9 +183,12 @@ export class PrioritizedMemorySystem extends EventEmitter {
   getAll(limit?: number): MemoryItem[] {
     const results: MemoryItem[] = [];
     for (const key of this.sortedKeys) {
-      results.push(this.memory.get(key)!);
+      const item = this.memory.get(key);
+      if (item) {
+        results.push(item);
+      }
     }
-    
+
     return limit ? results.slice(0, limit) : results;
   }
 

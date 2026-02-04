@@ -113,18 +113,18 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
         agent: this, // Pass the agent instance to behaviors
         bot: this.bot, // Pass the bot instance to behaviors
         // Also pass memory methods directly for easier access
-        addMemory: (content: string, type: string, priority?: number, tags?: string[], metadata?: Record<string, any>) => {
+        addMemory: (function(this: MCPIntegrationAgent, content: string, type: string, priority?: number, tags?: string[], metadata?: Record<string, any>) {
           if (this.bot) {
             return this.bot.addMemory(content, type, priority, tags, metadata);
           }
           return '';
-        },
-        searchMemories: (query: string, limit?: number) => {
+        }).bind(this),
+        searchMemories: (function(this: MCPIntegrationAgent, query: string, limit?: number) {
           if (this.bot) {
             return this.bot.searchMemories(query, limit);
           }
           return [];
-        }
+        }).bind(this)
       }
     });
 
@@ -315,7 +315,19 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
     }
 
     // Execute the search
+    logger.info(`Executing search tool for topic: ${topic}`, {
+      userId: this.userId,
+      topic,
+      limit: maxPosts
+    });
+
     const searchResults: any[] = await searchTool.handler({ query: topic, limit: maxPosts });
+
+    logger.info(`Search tool completed with ${searchResults.length} results`, {
+      userId: this.userId,
+      resultsCount: searchResults.length,
+      topic
+    });
 
     logger.info(`Found ${searchResults.length} posts for topic: ${topic}`, {
       userId: this.userId,
@@ -383,10 +395,23 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
       }
 
       // Enhance the reply with intrinsic motivation
+      logger.info(`Initiating LLM call for reply enhancement`, {
+        userId: this.userId,
+        originalContent: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+        activityType: 'reply_enhancement'
+      });
+
       const enhancedContent = await this.bot.runWithSystemPrompt(
         `Original reply: ${content}\n\nMake this reply more thoughtful, valuable, and aligned with the agent's intrinsic motivations.`,
         this.intrinsicMotivationPrompt
       );
+
+      logger.info(`LLM response received for reply enhancement`, {
+        userId: this.userId,
+        originalLength: content.length,
+        enhancedLength: enhancedContent.length,
+        activityType: 'reply_enhancement'
+      });
 
       // Get the reply tool
       const replyTool = this.tools.get('reply_to_post');
@@ -491,10 +516,24 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
     }
 
     // Enhance content with intrinsic motivation
+    logger.info(`Initiating LLM call for content enhancement`, {
+      userId: this.userId,
+      topic,
+      originalContent: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+      activityType: 'content_enhancement'
+    });
+
     const enhancedContent = await this.bot.runWithSystemPrompt(
       `Original content: ${content}\n\nHow can this content be improved to better serve the community and reflect the agent's intrinsic motivations?`,
       this.intrinsicMotivationPrompt
     );
+
+    logger.info(`LLM response received for content enhancement`, {
+      userId: this.userId,
+      originalLength: content.length,
+      enhancedLength: enhancedContent.length,
+      activityType: 'content_enhancement'
+    });
 
     // Get the create post tool
     const postTool = this.tools.get('create_post');
@@ -554,10 +593,22 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
       }
 
       // Use the bot to generate thoughts based on the prompt
+      logger.info(`Initiating LLM call for thinking activity`, {
+        userId: this.userId,
+        prompt: prompt.substring(0, 100) + (prompt.length > 100 ? '...' : ''),
+        activityType: 'thinking'
+      });
+
       const thoughts = await this.bot.runWithSystemPrompt(
         `Given the following prompt, provide a thoughtful reflection or analysis:\n\n${prompt}`,
         this.intrinsicMotivationPrompt
       );
+
+      logger.info(`LLM response received for thinking activity`, {
+        userId: this.userId,
+        responseLength: thoughts.length,
+        activityType: 'thinking'
+      });
 
       const result = {
         prompt,
@@ -641,6 +692,13 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
   }
 
   /**
+   * Get the activity scheduler for direct access
+   */
+  getActivityScheduler(): ActivityScheduler {
+    return this.activityScheduler;
+  }
+
+  /**
    * Stop the activity scheduler
    */
   stopActivityScheduler(): void {
@@ -695,6 +753,55 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
+    }
+  }
+
+  /**
+   * Adaptive activity distribution based on rate limiting feedback
+   */
+  async adjustActivityDistributionForRateLimits(): Promise<void> {
+    // Check rate limit status and adjust distribution accordingly
+    const messageUsage = this.rateLimiter.getUsage(this.userId, 'message');
+    const postUsage = this.rateLimiter.getUsage(this.userId, 'post');
+    const replyUsage = this.rateLimiter.getUsage(this.userId, 'reply');
+
+    // If we're hitting rate limits frequently, adjust the distribution
+    const currentDistribution = this.getActivityDistribution();
+    let newDistribution = {...currentDistribution};
+
+    // Reduce activities that are hitting rate limits
+    if (messageUsage.hourly >= messageUsage.hourlyLimit * 0.8) {
+      // If we're near the message limit, reduce think and search activities
+      newDistribution.think = Math.max(5, Math.floor(currentDistribution.think * 0.7)); // Reduce by 30%
+      newDistribution.read = Math.max(5, Math.floor(currentDistribution.read * 0.7));  // Reduce by 30%
+    }
+
+    // If post/reply limits are hit, reduce those
+    if (postUsage.hourly >= postUsage.hourlyLimit * 0.8) {
+      newDistribution.post = Math.max(0, Math.floor(currentDistribution.post * 0.5));  // Reduce by 50%
+    }
+
+    if (replyUsage.hourly >= replyUsage.hourlyLimit * 0.8) {
+      newDistribution.reply = Math.max(0, Math.floor(currentDistribution.reply * 0.5)); // Reduce by 50%
+    }
+
+    // Increase idle time to compensate for reduced activities
+    const totalActive = newDistribution.read + newDistribution.think + newDistribution.post + newDistribution.reply;
+    newDistribution.idle = Math.max(10, 100 - totalActive); // Ensure at least 10% idle
+
+    // Only update if there's a significant change
+    const hasChanged = Object.entries(newDistribution).some(
+      ([key, value]) => value !== currentDistribution[key as keyof ActivityDistribution]
+    );
+
+    if (hasChanged) {
+      logger.info('Adjusting activity distribution due to rate limits', {
+        userId: this.userId,
+        oldDistribution: currentDistribution,
+        newDistribution: newDistribution
+      });
+
+      this.updateActivityDistribution(newDistribution);
     }
   }
 

@@ -45,6 +45,16 @@ export class BotManager {
   }
 
   /**
+   * Add an existing bot instance to the manager
+   */
+  addExistingBot(botId: string, bot: ClawstrBot): void {
+    if (this.bots.has(botId)) {
+      throw new Error(`Bot with ID ${botId} already exists`);
+    }
+    this.bots.set(botId, bot);
+  }
+
+  /**
    * Get a bot by ID
    */
   getBot(botId: string): ClawstrBot | undefined {

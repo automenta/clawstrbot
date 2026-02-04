@@ -37,6 +37,14 @@ export class LowLevelBotController {
       throw new Error('Direct LLM access is disabled');
     }
 
+    // Log the LLM call details
+    console.log(`[LLM CALL START] Calling LLM with ${messages.length} messages`);
+    messages.forEach((msg, idx) => {
+      const msgType = msg._getType();
+      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      console.log(`[LLM MESSAGE ${idx}] Type: ${msgType}, Content: ${content.substring(0, 100)}...`);
+    });
+
     const chain = RunnableSequence.from([
       (input: BaseMessage[]) => input,
       this.llm,
@@ -44,7 +52,9 @@ export class LowLevelBotController {
     ]);
 
     const result = await chain.invoke(messages);
-    
+
+    console.log(`[LLM CALL COMPLETE] Received response: ${result.substring(0, 150)}...`);
+
     if (this.options.enableEventLogging) {
       this.logEvent('llm_call', { messages, result });
     }
@@ -243,13 +253,18 @@ export class LowLevelBotController {
 
   // Advanced prompting
   async runWithSystemPrompt(userInput: string, systemPrompt: string): Promise<string> {
+    console.log(`[LLM CALL] Initiating call with system prompt: ${systemPrompt.substring(0, 80)}...`);
+    console.log(`[LLM CALL] User input: ${userInput.substring(0, 80)}...`);
+
     const messages: BaseMessage[] = [
       new SystemMessage(systemPrompt),
       new HumanMessage(userInput)
     ];
 
     const result = await this.callLLM(messages);
-    
+
+    console.log(`[LLM RESPONSE] Received response: ${result.substring(0, 120)}...`);
+
     // Add to history
     this.appendToHistory({
       role: 'system',

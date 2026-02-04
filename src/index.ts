@@ -6,7 +6,7 @@ import figlet from 'figlet';
 import { ClawstrBot } from './bot';
 import { BotManager } from './bot-manager';
 import { ConfigManager } from './config-manager';
-import { TUIDashboard } from './tui-dashboard';
+import { WebDashboard } from './web-dashboard';
 import { PersistenceManager, SessionData } from './persistence-manager';
 import { AccountManager, AccountCredentials } from './account-manager';
 import { ExampleAgentImplementation } from './example-agent-implementation';
@@ -140,13 +140,15 @@ async function main() {
 
     // Restore history
     bot.setHistory(sessionData.history);
+
+    // Add existing bot to manager
+    botManager.addExistingBot(botId, bot); // Add the existing bot instance to the manager
   } else {
     console.log(chalk.green(`Creating new bot session: ${options.session}`));
-    bot = new ClawstrBot(botConfig);
+    // Create bot through manager to ensure it's properly tracked
+    bot = botManager.createBot(botId, botConfig);
   }
 
-  // Add bot to manager
-  botManager.createBot(botId, botConfig);
   botManager.setActiveBot(botId);
 
   // If approval system is enabled, wrap the bot
@@ -173,13 +175,26 @@ async function main() {
   });
 
   // Create dashboard
-  const dashboard = new TUIDashboard({
+  const dashboard = new WebDashboard({
     title: 'Clawstr Bot Dashboard',
+    port: 3000
   });
+
+  // Set up memory insertion callback to connect UI to bot
+  dashboard.setMemoryInsertionCallback((content, type, priority) => {
+    bot.addMemory(content, type, priority);
+    console.log(`Memory inserted via UI: [${priority}] ${type}: ${content.substring(0, 50)}...`);
+  });
+
+  // Connect the bot instance to the dashboard for memory operations
+  dashboard.setBotInstance(bot);
 
   // Update dashboard with initial info
   dashboard.updateBotStatus(`Session: ${options.session}\nStatus: Running\nUser: ${account.username}`);
   dashboard.addMessage(`Bot initialized for user: ${account.username}`);
+
+  // Start the web dashboard server
+  dashboard.start();
 
   // Register event handlers for dashboard updates
   botManager.getEventSystem().subscribe('bot_response', (event) => {
@@ -215,6 +230,15 @@ async function main() {
   // Create the MCP Integration Agent with MCP-style tools
   const agentId = `agent-${options.session}`;
   const agent = botManager.createAgent(agentId, botId, account.id);
+
+  // Update the activity distribution to favor thinking activities initially
+  agent.updateActivityDistribution({
+    read: 30,
+    think: 50,  // Higher value to encourage thinking
+    post: 0,
+    reply: 0,
+    idle: 20
+  });
 
   // Connect approval system to behavioral controller if available
   if (approvalSystem) {
@@ -256,27 +280,55 @@ async function main() {
         dashboard.addMessage(`[BEHAVIOR] Available behaviors:\n${behaviorList || 'No behaviors registered'}`);
         break;
       case 'enable':
-        // For simplicity, we'll just list behaviors that can be enabled
-        const disabledBehaviors = agent.getBehaviors().filter(b => !b.isEnabled());
-        if (disabledBehaviors.length > 0) {
-          // Enable the first disabled behavior as an example
-          const behaviorToEnable = disabledBehaviors[0];
-          agent.enableBehavior(behaviorToEnable.getConfig().id);
-          dashboard.addMessage(`[BEHAVIOR] Enabled behavior: ${behaviorToEnable.getConfig().id}`);
+        if (params && params.behaviorType) {
+          // Enable specific behavior based on type
+          const behaviorsOfType = agent.getBehaviors().filter(b => b.getConfig().type === params.behaviorType);
+          if (behaviorsOfType.length > 0) {
+            behaviorsOfType.forEach(behavior => {
+              if (!behavior.isEnabled()) {
+                agent.enableBehavior(behavior.getConfig().id);
+                dashboard.addMessage(`[BEHAVIOR] Enabled behavior: ${behavior.getConfig().id} (${params.behaviorType})`);
+              }
+            });
+          } else {
+            dashboard.addMessage(`[BEHAVIOR] No ${params.behaviorType} behaviors found to enable`);
+          }
         } else {
-          dashboard.addMessage(`[BEHAVIOR] No disabled behaviors to enable`);
+          // For backward compatibility - enable first disabled behavior
+          const disabledBehaviors = agent.getBehaviors().filter(b => !b.isEnabled());
+          if (disabledBehaviors.length > 0) {
+            const behaviorToEnable = disabledBehaviors[0];
+            agent.enableBehavior(behaviorToEnable.getConfig().id);
+            dashboard.addMessage(`[BEHAVIOR] Enabled behavior: ${behaviorToEnable.getConfig().id}`);
+          } else {
+            dashboard.addMessage(`[BEHAVIOR] No disabled behaviors to enable`);
+          }
         }
         break;
       case 'disable':
-        // For simplicity, we'll just list behaviors that can be disabled
-        const enabledBehaviors = agent.getBehaviors().filter(b => b.isEnabled());
-        if (enabledBehaviors.length > 0) {
-          // Disable the first enabled behavior as an example
-          const behaviorToDisable = enabledBehaviors[0];
-          agent.disableBehavior(behaviorToDisable.getConfig().id);
-          dashboard.addMessage(`[BEHAVIOR] Disabled behavior: ${behaviorToDisable.getConfig().id}`);
+        if (params && params.behaviorType) {
+          // Disable specific behavior based on type
+          const behaviorsOfType = agent.getBehaviors().filter(b => b.getConfig().type === params.behaviorType);
+          if (behaviorsOfType.length > 0) {
+            behaviorsOfType.forEach(behavior => {
+              if (behavior.isEnabled()) {
+                agent.disableBehavior(behavior.getConfig().id);
+                dashboard.addMessage(`[BEHAVIOR] Disabled behavior: ${behavior.getConfig().id} (${params.behaviorType})`);
+              }
+            });
+          } else {
+            dashboard.addMessage(`[BEHAVIOR] No ${params.behaviorType} behaviors found to disable`);
+          }
         } else {
-          dashboard.addMessage(`[BEHAVIOR] No enabled behaviors to disable`);
+          // For backward compatibility - disable first enabled behavior
+          const enabledBehaviors = agent.getBehaviors().filter(b => b.isEnabled());
+          if (enabledBehaviors.length > 0) {
+            const behaviorToDisable = enabledBehaviors[0];
+            agent.disableBehavior(behaviorToDisable.getConfig().id);
+            dashboard.addMessage(`[BEHAVIOR] Disabled behavior: ${behaviorToDisable.getConfig().id}`);
+          } else {
+            dashboard.addMessage(`[BEHAVIOR] No enabled behaviors to disable`);
+          }
         }
         break;
     }
@@ -287,16 +339,44 @@ async function main() {
     try {
       // Get memories from the bot (limit to most recent 20)
       const memories = bot.getAllMemories(20);
+      const stats = bot.getMemoryStats();
+      console.log(chalk.blue(`[MEMORY SYNC] Syncing ${memories.length} memories to dashboard (Total: ${stats.size})`));
+      if (memories.length > 0) {
+        console.log(chalk.blue(`[MEMORY DEBUG] First few memory IDs: [${memories.slice(0, 3).map(m => m.id).join(', ')}]`));
+        console.log(chalk.blue(`[MEMORY DEBUG] First few memory contents: [${memories.slice(0, 3).map(m => `"${m.content.substring(0, 30)}..."`).join(', ')}]`));
+      }
       dashboard.updateMemories(memories);
     } catch (error) {
       console.error(chalk.red('Error updating memory display:'), error);
     }
   };
 
-  // Update memory display every 5 seconds
-  setInterval(updateMemoryDisplay, 5000);
+  // Update memory display every 2 seconds for more frequent updates
+  setInterval(updateMemoryDisplay, 2000);
   // Also update immediately
   setTimeout(updateMemoryDisplay, 1000);
+
+  // Subscribe to memory system events to update the dashboard in real-time
+  bot.getMemorySystem().on('memoryAdded', (memory) => {
+    console.log(chalk.blue(`[MEMORY EVENT] Memory added: ${memory.content.substring(0, 50)}...`));
+    updateMemoryDisplay(); // Update immediately when a memory is added
+  });
+
+  bot.getMemorySystem().on('memoryUpdated', (memory) => {
+    console.log(chalk.blue(`[MEMORY EVENT] Memory updated: ${memory.id}`));
+    updateMemoryDisplay(); // Update immediately when a memory is updated
+  });
+
+  bot.getMemorySystem().on('memoryRemoved', (memoryId) => {
+    console.log(chalk.blue(`[MEMORY EVENT] Memory removed: ${memoryId}`));
+    updateMemoryDisplay(); // Update immediately when a memory is removed
+  });
+
+  // Additionally, log the memory system state periodically
+  setInterval(() => {
+    const stats = bot.getMemoryStats();
+    console.log(chalk.yellow(`[MEMORY STATS] Size: ${stats.size}/${stats.maxSize}, Utilization: ${(stats.utilization * 100).toFixed(1)}%`));
+  }, 10000);
 
   // Set up the agent to run continuously
   console.log(chalk.blue('Starting agent-driven operations...'));
@@ -319,11 +399,31 @@ async function main() {
     }
   };
 
-  // Run the agent loop periodically
-  setInterval(runAgentLoop, 60000); // Run every minute
+  // Run the agent loop continuously - this creates the cognitive loop
+  // The activity scheduler itself runs continuously, so we don't need to restart it periodically
+  try {
+    console.log(chalk.cyan('MCP Integration Agent starting activity cycle...'));
+    dashboard.addMessage('[AGENT] Starting continuous activity cycle...');
 
-  // Also run immediately
-  setTimeout(runAgentLoop, 5000); // Start after 5 seconds to allow other systems to initialize
+    // Start the activity scheduler once - it runs continuously internally
+    await agent.startActivityScheduler();
+
+    console.log(chalk.cyan('MCP Integration Agent activity scheduler started'));
+    dashboard.addMessage('[AGENT] Continuous activity cycle running...');
+  } catch (error) {
+    console.error(chalk.red('Agent startup error:'), error);
+    dashboard.addMessage(`[AGENT STARTUP ERROR] ${error}`);
+  }
+
+  // Set up periodic adjustment of activity distribution based on rate limiting
+  setInterval(async () => {
+    try {
+      await agent.adjustActivityDistributionForRateLimits();
+    } catch (error) {
+      console.error(chalk.red('Error adjusting activity distribution:'), error);
+      dashboard.addMessage(`[AGENT ADJUSTMENT ERROR] ${error}`);
+    }
+  }, 30000); // Adjust every 30 seconds
 
   // Create and initialize the example agent
   const agentDemo = new ExampleAgentImplementation(bot, botManager.getEventSystem());
@@ -406,6 +506,21 @@ async function main() {
     process.exit(0);
   });
 }
+
+// Export classes for use as a module
+export {
+  ClawstrBot,
+  BotManager,
+  ConfigManager,
+  WebDashboard,
+  PersistenceManager,
+  AccountManager,
+  ExampleAgentImplementation,
+  ApprovalSystem,
+  ApprovalPolicyManager,
+  ApprovalEnabledBot,
+  ActionType
+};
 
 // Run the application
 main().catch(error => {

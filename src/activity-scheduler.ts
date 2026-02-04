@@ -162,6 +162,14 @@ export class ActivityScheduler extends EventEmitter {
     });
 
     this.log(`Completed activity: ${activityType} (actual: ${actualDurationMs}ms, scheduled: ${scheduledDurationMs}ms)`);
+
+    // If the activity completed much faster than scheduled (indicating rate limiting or other issues),
+    // add a delay to prevent rapid-fire scheduling
+    if (actualDurationMs < scheduledDurationMs * 0.1) { // Less than 10% of scheduled time
+      const delayMs = Math.min(scheduledDurationMs * 0.5, 10000); // Delay up to 50% of scheduled time or 10 seconds max
+      this.log(`Activity completed too quickly (${actualDurationMs}ms < ${scheduledDurationMs * 0.1}ms), adding ${delayMs}ms delay to prevent rapid scheduling`);
+      await this.wait(delayMs);
+    }
   }
 
   /**

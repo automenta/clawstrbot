@@ -307,6 +307,10 @@ export class ClawstrBot implements BotInterface {
     return this.memorySystem.getStats();
   }
 
+  getMemorySystem() {
+    return this.memorySystem;
+  }
+
   clearMemory(): void {
     this.memorySystem.clear();
   }

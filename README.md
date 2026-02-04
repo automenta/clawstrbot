@@ -1,13 +1,13 @@
 # Clawstr Bot Framework
 
-A comprehensive bot framework for building autonomous agents with LangChain and OpenAI-compatible APIs. The bot features a prioritized memory system, behavior-based actions, and a TUI dashboard for monitoring operations.
+A comprehensive bot framework for building autonomous agents with LangChain and OpenAI-compatible APIs. The bot features a prioritized memory system, behavior-based actions, and a web-based dashboard for monitoring operations.
 
 ## Features
 
 - **Autonomous Operation**: Self-directed activities with read, think, post, reply, and idle behaviors
 - **Prioritized Memory System**: Finite-sized memory with configurable priorities and automatic eviction
 - **Behavior-Based Actions**: Modular behavior system with configurable activity distributions
-- **TUI Dashboard**: Terminal-based dashboard with run/pause toggle and memory visualization
+- **Web Dashboard**: Browser-based dashboard with run/pause toggle and memory visualization
 - **LangChain Integration**: Built with LangChain for advanced AI interactions
 - **OpenAI-Compatible API**: Works with OpenAI and compatible services (Ollama, Azure, custom endpoints, etc.)
 - **Persistent Sessions**: Disk-based persistence between sessions
@@ -65,7 +65,7 @@ configManager.updateConfig({
 - **Behavior System**: Modular behaviors (read, think, post, reply, idle) with configurable execution
 - **Memory System**: Prioritized finite-sized memory with automatic eviction
 - **Activity Scheduler**: Manages the distribution of different activities over time
-- **TUI Dashboard**: Real-time monitoring with run/pause toggle and memory visualization
+- **Web Dashboard**: Real-time monitoring with run/pause toggle and memory visualization
 
 ### Memory System
 
@@ -139,15 +139,14 @@ agent.updateActivityDistribution({
 await agent.startActivityScheduler();
 ```
 
-### TUI Dashboard
+### Web Dashboard
 
 ```typescript
-import { TUIDashboard } from 'clawstr-bot';
+import { WebDashboard } from 'clawstr-bot';
 
-const dashboard = new TUIDashboard({
+const dashboard = new WebDashboard({
   title: 'Clawstr Bot Dashboard',
-  width: 120,
-  height: 40
+  port: 3000
 });
 
 dashboard.start();
@@ -273,7 +272,7 @@ agent.updateActivityDistribution({
 ### Simple Autonomous Bot
 
 ```typescript
-import { ClawstrBot, MCPIntegrationAgent, TUIDashboard, EventSystem } from 'clawstr-bot';
+import { ClawstrBot, MCPIntegrationAgent, WebDashboard, EventSystem } from 'clawstr-bot';
 
 async function runSimpleBot() {
   // Create bot with memory
@@ -288,7 +287,7 @@ async function runSimpleBot() {
   const eventSystem = new EventSystem();
 
   // Create dashboard
-  const dashboard = new TUIDashboard({ title: 'Simple Bot Dashboard' });
+  const dashboard = new WebDashboard({ title: 'Simple Bot Dashboard', port: 3000 });
   dashboard.start();
 
   // Create agent
@@ -341,7 +340,7 @@ clawstr-bot/
 ├── src/
 │   ├── bot.ts                    # Core bot implementation with memory system
 │   ├── mcp-integration-agent.ts  # Core intelligence and behavior management
-│   ├── tui-dashboard.ts          # Terminal UI dashboard
+│   ├── web-dashboard.ts          # Web UI dashboard
 │   ├── memory-system.ts          # Prioritized finite-sized memory system
 │   ├── behaviors/                # Behavior system implementation
 │   │   ├── base-behavior.ts      # Base behavior class
@@ -383,7 +382,7 @@ For reliable, robust usage in production:
    ```
 
 3. **Monitoring**:
-   - The TUI dashboard provides real-time monitoring
+   - The web dashboard provides real-time monitoring
    - Events are logged for debugging and analysis
    - Memory usage statistics are available via `getMemoryStats()`
 
@@ -392,7 +391,7 @@ For reliable, robust usage in production:
 #### Setting Up for Clawstr Engagement
 
 ```typescript
-import { ClawstrBot, MCPIntegrationAgent, TUIDashboard, EventSystem } from 'clawstr-bot';
+import { ClawstrBot, MCPIntegrationAgent, WebDashboard, EventSystem } from 'clawstr-bot';
 
 async function setupClawstrBot() {
   // Create bot with memory for Clawstr engagement

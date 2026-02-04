@@ -49,10 +49,17 @@ export class ReadBehavior extends BaseBehavior {
         data = result.result;
 
         // Store the reading results in memory
-        if (agent.addMemory) {
+        console.log(`[ReadBehavior] Attempting to store read results in memory, agent.addMemory exists: ${!!agent.addMemory}`);
+        console.log(`[ReadBehavior] Context has addMemory: ${!!(context as any).addMemory}`);
+
+        // Try to use memory methods from context if available
+        const memoryHandler = agent.addMemory || (context as any).addMemory;
+
+        if (memoryHandler) {
           const query = this.readConfig.searchQuery || 'unknown';
           const memoryContent = `Read results for query "${query}": ${JSON.stringify(result.result)}`;
-          agent.addMemory(
+          console.log(`[ReadBehavior] Creating memory: ${memoryContent.substring(0, 100)}...`);
+          memoryHandler(
             memoryContent,
             'observation',
             6, // Medium-high priority for observations
@@ -63,6 +70,9 @@ export class ReadBehavior extends BaseBehavior {
               timestamp: new Date().toISOString()
             }
           );
+          console.log(`[ReadBehavior] Memory created successfully`);
+        } else {
+          console.log(`[ReadBehavior] No memory handler available (agent.addMemory: ${!!agent.addMemory}, context.addMemory: ${(context as any).addMemory ? 'yes' : 'no'})`);
         }
       } else {
         // Fallback to simulation if no agent attached
@@ -85,6 +95,24 @@ export class ReadBehavior extends BaseBehavior {
           simulated: true,
           processedAt: new Date()
         };
+
+        // Even in simulation mode, store the reading results in memory
+        const agent = context.agent as AgentCapabilities | undefined;
+        if (agent && agent.addMemory) {
+          const query = this.readConfig.searchQuery || 'unknown';
+          agent.addMemory(
+            `Simulated read results for query "${query}": ${data.resultsCount} items processed (simulated)`,
+            'observation',
+            5, // Medium priority for observations
+            ['read', 'simulation', 'search', query],
+            {
+              query,
+              resultsCount: data.resultsCount,
+              timestamp: new Date().toISOString(),
+              simulated: true
+            }
+          );
+        }
       }
 
       if (context.abortSignal?.aborted) {
@@ -174,9 +202,16 @@ export class ThinkBehavior extends BaseBehavior {
         };
 
         // Store the thoughts in memory
-        if (agent.addMemory) {
+        console.log(`[ThinkBehavior] Attempting to store thoughts in memory, agent.addMemory exists: ${!!agent.addMemory}`);
+        console.log(`[ThinkBehavior] Context has addMemory: ${!!(context as any).addMemory}`);
+
+        // Try to use memory methods from context if available
+        const memoryHandler = agent.addMemory || (context as any).addMemory;
+
+        if (memoryHandler) {
           const memoryContent = `Thoughts on: ${prompt}. Result: ${JSON.stringify(result.result)}`;
-          agent.addMemory(
+          console.log(`[ThinkBehavior] Creating memory: ${memoryContent.substring(0, 100)}...`);
+          memoryHandler(
             memoryContent,
             'thought',
             7, // High priority for thoughts
@@ -188,6 +223,9 @@ export class ThinkBehavior extends BaseBehavior {
               contextUsed: relevantMemories.length > 0
             }
           );
+          console.log(`[ThinkBehavior] Memory created successfully`);
+        } else {
+          console.log(`[ThinkBehavior] No memory handler available (agent.addMemory: ${!!agent.addMemory}, context.addMemory: ${(context as any).addMemory ? 'yes' : 'no'})`);
         }
       } else {
         // Simulation
@@ -207,6 +245,23 @@ export class ThinkBehavior extends BaseBehavior {
           thoughts: 'Deep reflection and analysis performed (simulated)',
           processedAt: new Date()
         };
+
+        // Even in simulation mode, store the thoughts in memory
+        if (agent && agent.addMemory) {
+          const prompt = context.thinkPrompt || "Reflection on current state";
+          agent.addMemory(
+            `Simulated thoughts on: ${prompt}. Result: Deep reflection and analysis performed (simulated)`,
+            'thought',
+            6, // Medium-high priority for thoughts
+            ['think', 'simulation', 'reflection'],
+            {
+              prompt,
+              result: 'Deep reflection and analysis performed (simulated)',
+              timestamp: new Date().toISOString(),
+              simulated: true
+            }
+          );
+        }
       }
 
       if (context.abortSignal?.aborted) {
