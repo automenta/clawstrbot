@@ -78,6 +78,9 @@ export class ReadBehavior extends BaseBehavior {
         // Fallback to simulation if no agent attached
         console.log(`[ReadBehavior] No agent found in context, simulating reading...`);
         const startTime = Date.now();
+        let lastProgressUpdate = Date.now();
+        const progressUpdateInterval = 1000; // Update progress every 1 second instead of every 100ms
+
         while (Date.now() - startTime < 1000 && !context.abortSignal?.aborted) {
           await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -86,7 +89,12 @@ export class ReadBehavior extends BaseBehavior {
           context.remainingTimeMs = context.durationMs - elapsed;
           context.progress = elapsed / context.durationMs;
 
-          if (this.onProgress) await this.onProgress(context);
+          // Only update progress periodically to reduce redundancy
+          const now = Date.now();
+          if (now - lastProgressUpdate >= progressUpdateInterval) {
+            if (this.onProgress) await this.onProgress(context);
+            lastProgressUpdate = now;
+          }
         }
 
         data = {
@@ -230,6 +238,9 @@ export class ThinkBehavior extends BaseBehavior {
       } else {
         // Simulation
         const startTime = Date.now();
+        let lastProgressUpdate = Date.now();
+        const progressUpdateInterval = 1000; // Update progress every 1 second instead of every 100ms
+
         while (Date.now() - startTime < 2000 && !context.abortSignal?.aborted) {
           await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -238,7 +249,12 @@ export class ThinkBehavior extends BaseBehavior {
           context.remainingTimeMs = context.durationMs - elapsed;
           context.progress = elapsed / context.durationMs;
 
-          if (this.onProgress) await this.onProgress(context);
+          // Only update progress periodically to reduce redundancy
+          const now = Date.now();
+          if (now - lastProgressUpdate >= progressUpdateInterval) {
+            if (this.onProgress) await this.onProgress(context);
+            lastProgressUpdate = now;
+          }
         }
 
         data = {
@@ -374,6 +390,9 @@ export class PostBehavior extends BaseBehavior {
       } else {
         // Simulation
         const startTime = Date.now();
+        let lastProgressUpdate = Date.now();
+        const progressUpdateInterval = 1000; // Update progress every 1 second instead of every 100ms
+
         while (Date.now() - startTime < 1500 && !context.abortSignal?.aborted) {
           await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -382,7 +401,12 @@ export class PostBehavior extends BaseBehavior {
           context.remainingTimeMs = context.durationMs - elapsed;
           context.progress = elapsed / context.durationMs;
 
-          if (this.onProgress) await this.onProgress(context);
+          // Only update progress periodically to reduce redundancy
+          const now = Date.now();
+          if (now - lastProgressUpdate >= progressUpdateInterval) {
+            if (this.onProgress) await this.onProgress(context);
+            lastProgressUpdate = now;
+          }
         }
 
         data = {
@@ -498,6 +522,9 @@ export class ReplyBehavior extends BaseBehavior {
       } else {
         // Simulation
         const startTime = Date.now();
+        let lastProgressUpdate = Date.now();
+        const progressUpdateInterval = 1000; // Update progress every 1 second instead of every 100ms
+
         while (Date.now() - startTime < 1200 && !context.abortSignal?.aborted) {
           await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -506,7 +533,12 @@ export class ReplyBehavior extends BaseBehavior {
           context.remainingTimeMs = context.durationMs - elapsed;
           context.progress = elapsed / context.durationMs;
 
-          if (this.onProgress) await this.onProgress(context);
+          // Only update progress periodically to reduce redundancy
+          const now = Date.now();
+          if (now - lastProgressUpdate >= progressUpdateInterval) {
+            if (this.onProgress) await this.onProgress(context);
+            lastProgressUpdate = now;
+          }
         }
 
         data = {
@@ -573,6 +605,9 @@ export class IdleBehavior extends BaseBehavior {
 
       // Simulate idle activity - just wait
       const startTime = Date.now();
+      let lastProgressUpdate = Date.now();
+      const progressUpdateInterval = 1000; // Update progress every 1 second instead of every 100ms
+
       while (Date.now() - startTime < context.durationMs && !context.abortSignal?.aborted) {
         await new Promise(resolve => setTimeout(resolve, 100));
 
@@ -582,8 +617,13 @@ export class IdleBehavior extends BaseBehavior {
         context.remainingTimeMs = context.durationMs - elapsed;
         context.progress = elapsed / context.durationMs;
 
-        if (this.onProgress) {
-          await this.onProgress(context);
+        // Only update progress periodically to reduce redundancy
+        const now = Date.now();
+        if (now - lastProgressUpdate >= progressUpdateInterval) {
+          if (this.onProgress) {
+            await this.onProgress(context);
+          }
+          lastProgressUpdate = now;
         }
       }
 

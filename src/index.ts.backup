@@ -356,7 +356,7 @@ async function main() {
           console.log(chalk.blue(`[MEMORY SYNC] Syncing ${memories.length} memories to dashboard (Total: ${stats.size})`));
           if (memories.length > 0) {
             console.log(chalk.blue(`[MEMORY DEBUG] First few memory IDs: [${memories.slice(0, 3).map(m => m.id).join(', ')}]`));
-            console.log(chalk.blue(`[MEMORY DEBUG] First few memory contents: [${memories.slice(0, 3).map(m => `"${m.content.substring(0, 30)}..."`).join(", ")}]`));
+            console.log(chalk.blue(`[MEMORY DEBUG] First few memory contents: [${memories.slice(0, 3).map(m => \`${m.content.substring(0, 30)}...\`).join(', ')}]`));
           }
         } else {
           console.log(chalk.blue(`[MEMORY SYNC] Syncing ${memories.length} memories to dashboard (Total: ${stats.size})`));
@@ -364,6 +364,18 @@ async function main() {
         lastLogTime = now;
       }
       
+      // Always update the dashboard regardless of logging
+      dashboard.updateMemories(memories);
+      lastMemorySize = stats.size;
+    } catch (error) {
+      console.error(chalk.red('Error updating memory display:'), error);
+    }
+  };
+  const updateMemoryDisplay = () => {
+    let lastMemorySize = 0;
+    let lastLogTime = Date.now();
+    const LOG_INTERVAL = 30000; // 30 seconds
+    try {
       // Always update the dashboard regardless of logging
       dashboard.updateMemories(memories);
       lastMemorySize = stats.size;

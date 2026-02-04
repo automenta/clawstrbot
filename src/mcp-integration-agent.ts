@@ -9,8 +9,8 @@ import logger from './logger';
 import { ActivityScheduler, ActivityDistribution } from './activity-scheduler';
 import { BehaviorRegistry } from './behaviors/behavior-registry';
 import { registerDefaultFactories } from './behaviors/behavior-factories';
-import { mcpTools } from './mcp-tools/tools';
 import { BotInterface, AgentInterface } from './interfaces';
+import { MCPClient, MCPConfig } from './mcp-client';
 
 export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface {
   private bot: ClawstrBot;
@@ -21,6 +21,7 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
   protected behavioralController: BehavioralController;
   private userId: string;
   private activityScheduler: ActivityScheduler;
+  private mcpClient: MCPClient;
 
   constructor(bot: ClawstrBot, eventSystem: EventSystem, userId: string = 'anonymous') {
     super({
@@ -70,6 +71,14 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
       requireApprovalAfter: 3, // Require approval after 3 consecutive actions
       contentFiltering: true, // Enable content filtering
       sentimentAnalysis: true // Enable sentiment analysis
+    });
+
+    // Initialize MCP Client with configuration from bot
+    const botConfig = bot.getConfig();
+    this.mcpClient = new MCPClient({
+      baseUrl: botConfig.baseUrl || process.env.MCP_BASE_URL || 'http://localhost:8000',
+      apiKey: botConfig.apiKey || process.env.MCP_API_KEY || 'default-key',
+      timeout: 30000
     });
 
     // Define intrinsic motivation system prompt
@@ -167,10 +176,8 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
       }, 'mcp-agent');
     });
 
-    // Add MCP tools to the agent
-    for (const tool of mcpTools) {
-      this.tools.set(tool.name, tool);
-    }
+    // Note: MCP tools are now handled by the MCP client directly
+    // The tools map is kept for backward compatibility but not used for actual MCP operations
 
     // Initialize agent actions
     this.initializeActions();
@@ -307,23 +314,41 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
       };
     }
 
-    // Get the search tool
-    const searchTool = this.tools.get('search_posts');
-    if (!searchTool) {
-      logger.error('search_posts tool not found', { userId: this.userId, topic });
-      throw new Error('search_posts tool not found');
-    }
-
-    // Execute the search
-    logger.info(`Executing search tool for topic: ${topic}`, {
+    // Execute the search using real MCP client
+    logger.info(`Executing search via MCP client for topic: ${topic}`, {
       userId: this.userId,
       topic,
       limit: maxPosts
     });
 
-    const searchResults: any[] = await searchTool.handler({ query: topic, limit: maxPosts });
+    const searchResponse = await this.mcpClient.searchPosts({ query: topic, limit: maxPosts });
 
-    logger.info(`Search tool completed with ${searchResults.length} results`, {
+    if (!searchResponse.success) {
+      logger.error(`Search failed via MCP client: ${searchResponse.error}`, {
+        userId: this.userId,
+        topic,
+        error: searchResponse.error,
+        rateLimited: searchResponse.rateLimited
+      });
+
+      // Handle rate limiting
+      if (searchResponse.rateLimited) {
+        this.handleRateLimit(this.userId, 'Search rate limit exceeded');
+        return {
+          topic,
+          postsExamined: 0,
+          posts: [],
+          error: 'Rate limit exceeded for searches',
+          retryAfter: 3600 // 1 hour
+        };
+      }
+
+      throw new Error(searchResponse.error || 'Search failed');
+    }
+
+    const searchResults: any[] = searchResponse.result.posts || [];
+
+    logger.info(`MCP client search completed with ${searchResults.length} results`, {
       userId: this.userId,
       resultsCount: searchResults.length,
       topic
@@ -342,7 +367,8 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
         id: post.id,
         title: post.title,
         author: post.author,
-        relevance: this.calculateRelevance(topic, post.content)
+        content: post.content,
+        relevance: this.calculateRelevance(topic, post.content || '')
       }))
     };
 
@@ -413,16 +439,37 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
         activityType: 'reply_enhancement'
       });
 
-      // Get the reply tool
-      const replyTool = this.tools.get('reply_to_post');
-      if (!replyTool) {
-        logger.error('reply_to_post tool not found', { userId: this.userId, postId });
-        throw new Error('reply_to_post tool not found');
+      // Use the real MCP client to create the reply
+      const replyResponse = await this.mcpClient.engageWithPost({
+        postId,
+        engagementType: 'reply',
+        content: enhancedContent
+      });
+
+      if (!replyResponse.success) {
+        logger.error(`Reply failed via MCP client: ${replyResponse.error}`, {
+          userId: this.userId,
+          postId,
+          error: replyResponse.error,
+          rateLimited: replyResponse.rateLimited
+        });
+
+        // Handle rate limiting
+        if (replyResponse.rateLimited) {
+          this.handleRateLimit(this.userId, 'Reply rate limit exceeded');
+          return {
+            success: false,
+            error: 'Rate limit exceeded for replies',
+            retryAfter: 3600 // 1 hour
+          };
+        }
+
+        throw new Error(replyResponse.error || 'Reply failed');
       }
 
-      result = await replyTool.handler({ postId, content: enhancedContent });
+      result = replyResponse.result;
 
-      logger.info('Reply created successfully', { userId: this.userId, postId, result });
+      logger.info('Reply created successfully via MCP client', { userId: this.userId, postId, result });
 
       // Store the reply in memory
       if (this.bot) {
@@ -453,9 +500,35 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
         };
       }
 
-      // Simulate upvoting (in a real system, there would be a specific tool for this)
-      result = { success: true, message: `Upvoted post ${postId}` };
-      logger.info('Upvoted post', { userId: this.userId, postId });
+      // Use the real MCP client to upvote
+      const upvoteResponse = await this.mcpClient.engageWithPost({
+        postId,
+        engagementType: 'like'
+      });
+
+      if (!upvoteResponse.success) {
+        logger.error(`Upvote failed via MCP client: ${upvoteResponse.error}`, {
+          userId: this.userId,
+          postId,
+          error: upvoteResponse.error,
+          rateLimited: upvoteResponse.rateLimited
+        });
+
+        // Handle rate limiting
+        if (upvoteResponse.rateLimited) {
+          this.handleRateLimit(this.userId, 'Upvote rate limit exceeded');
+          return {
+            success: false,
+            error: 'Rate limit exceeded for upvotes',
+            retryAfter: 3600 // 1 hour
+          };
+        }
+
+        throw new Error(upvoteResponse.error || 'Upvote failed');
+      }
+
+      result = upvoteResponse.result;
+      logger.info('Upvoted post via MCP client', { userId: this.userId, postId });
     } else if (engagementType === 'bookmark') {
       // Check behavioral controls for bookmarks
       const behaviorCheck = await this.behavioralController.checkBehavior(this.userId, ActionType.SEND_MESSAGE);
@@ -475,8 +548,35 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
         };
       }
 
-      // Simulate bookmarking (in a real system, there would be a specific tool for this)
-      result = { success: true, message: `Bookmarked post ${postId}` };
+      // Use the real MCP client to bookmark
+      const bookmarkResponse = await this.mcpClient.engageWithPost({
+        postId,
+        engagementType: 'share' // Using share as a proxy for bookmarking
+      });
+
+      if (!bookmarkResponse.success) {
+        logger.error(`Bookmark failed via MCP client: ${bookmarkResponse.error}`, {
+          userId: this.userId,
+          postId,
+          error: bookmarkResponse.error,
+          rateLimited: bookmarkResponse.rateLimited
+        });
+
+        // Handle rate limiting
+        if (bookmarkResponse.rateLimited) {
+          this.handleRateLimit(this.userId, 'Bookmark rate limit exceeded');
+          return {
+            success: false,
+            error: 'Rate limit exceeded for bookmarks',
+            retryAfter: 3600 // 1 hour
+          };
+        }
+
+        throw new Error(bookmarkResponse.error || 'Bookmark failed');
+      }
+
+      result = bookmarkResponse.result;
+      logger.info('Bookmarked post via MCP client', { userId: this.userId, postId });
       logger.info('Bookmarked post', { userId: this.userId, postId });
     } else {
       logger.warn(`Unsupported engagement type: ${engagementType}`, { userId: this.userId, postId, engagementType });
@@ -535,16 +635,39 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
       activityType: 'content_enhancement'
     });
 
-    // Get the create post tool
-    const postTool = this.tools.get('create_post');
-    if (!postTool) {
-      logger.error('create_post tool not found', { userId: this.userId });
-      throw new Error('create_post tool not found');
+    // Use the real MCP client to create content
+    const createResponse = await this.mcpClient.createContent({
+      title,
+      content: enhancedContent,
+      topic,
+      tags
+    });
+
+    if (!createResponse.success) {
+      logger.error(`Content creation failed via MCP client: ${createResponse.error}`, {
+        userId: this.userId,
+        topic,
+        title,
+        error: createResponse.error,
+        rateLimited: createResponse.rateLimited
+      });
+
+      // Handle rate limiting
+      if (createResponse.rateLimited) {
+        this.handleRateLimit(this.userId, 'Post rate limit exceeded');
+        return {
+          success: false,
+          error: 'Rate limit exceeded for posts',
+          retryAfter: 3600 // 1 hour
+        };
+      }
+
+      throw new Error(createResponse.error || 'Content creation failed');
     }
 
-    const result = await postTool.handler({ title, content: enhancedContent, tags });
+    const result = createResponse.result;
 
-    logger.info('Content created successfully', { userId: this.userId, topic, title, result });
+    logger.info('Content created successfully via MCP client', { userId: this.userId, topic, title, result });
 
     // Emit event for dashboard
     this.eventSystem.emit('agent_content_creation', {
@@ -859,5 +982,22 @@ export class MCPIntegrationAgent extends AbstractAgent implements AgentInterface
    */
   async executeBehavior(id: string, context: any): Promise<any> {
     return await this.activityScheduler.getBehaviorRegistry().execute(id, context);
+  }
+
+  /**
+   * Handle rate limiting for a user
+   */
+  private handleRateLimit(userId: string, reason: string): void {
+    logger.warn(`Rate limit exceeded for user ${userId}: ${reason}`, {
+      userId,
+      reason
+    });
+
+    // Emit rate limit event
+    this.eventSystem.emit('agent_rate_limit', {
+      userId,
+      reason,
+      timestamp: new Date().toISOString()
+    }, 'mcp-agent');
   }
 }
