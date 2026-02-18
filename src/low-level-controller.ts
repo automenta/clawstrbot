@@ -1,8 +1,9 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages";
+import { BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { RunnableSequence } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
-import { Message, BotConfig } from './bot';
+import { Message, BotConfig } from './types';
+import { createLLM } from './llm-factory';
 
 export interface LowLevelBotControllerOptions {
   enableDirectAccess?: boolean;
@@ -18,7 +19,7 @@ export class LowLevelBotController {
   private eventLog: any[] = [];
   private options: LowLevelBotControllerOptions;
 
-  constructor(config: BotConfig, options: LowLevelBotControllerOptions = {}) {
+  constructor(config: BotConfig, llm?: ChatOpenAI, options: LowLevelBotControllerOptions = {}) {
     this.config = config;
     this.options = { 
       enableDirectAccess: true, 
@@ -27,14 +28,7 @@ export class LowLevelBotController {
       ...options 
     };
     
-    this.llm = new ChatOpenAI({
-      openAIApiKey: config.apiKey,
-      modelName: config.model || "gpt-3.5-turbo",
-      temperature: config.temperature || 0.7,
-      configuration: {
-        baseURL: config.baseUrl,
-      }
-    });
+    this.llm = llm || createLLM(config);
   }
 
   // Direct LLM access methods
@@ -43,6 +37,14 @@ export class LowLevelBotController {
       throw new Error('Direct LLM access is disabled');
     }
 
+    // Log the LLM call details
+    console.log(`[LLM CALL START] Calling LLM with ${messages.length} messages`);
+    messages.forEach((msg, idx) => {
+      const msgType = msg._getType();
+      const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      console.log(`[LLM MESSAGE ${idx}] Type: ${msgType}, Content: ${content.substring(0, 100)}...`);
+    });
+
     const chain = RunnableSequence.from([
       (input: BaseMessage[]) => input,
       this.llm,
@@ -50,7 +52,9 @@ export class LowLevelBotController {
     ]);
 
     const result = await chain.invoke(messages);
-    
+
+    console.log(`[LLM CALL COMPLETE] Received response: ${result.substring(0, 150)}...`);
+
     if (this.options.enableEventLogging) {
       this.logEvent('llm_call', { messages, result });
     }
@@ -108,14 +112,9 @@ export class LowLevelBotController {
 
     if (state.config) {
       this.config = { ...state.config };
-      this.llm = new ChatOpenAI({
-        openAIApiKey: this.config.apiKey,
-        modelName: this.config.model || "gpt-3.5-turbo",
-        temperature: this.config.temperature || 0.7,
-        configuration: {
-          baseURL: this.config.baseUrl,
-        }
-      });
+      // Note: We don't have access to the original LLM if it was passed in constructor,
+      // so we have to recreate it if config changes.
+      this.llm = createLLM(this.config);
     }
 
     if (state.history) {
@@ -136,14 +135,7 @@ export class LowLevelBotController {
     this.config = { ...this.config, ...config };
     
     // Reinitialize the LLM with new config
-    this.llm = new ChatOpenAI({
-      openAIApiKey: this.config.apiKey,
-      modelName: this.config.model || "gpt-3.5-turbo",
-      temperature: this.config.temperature || 0.7,
-      configuration: {
-        baseURL: this.config.baseUrl,
-      }
-    });
+    this.llm = createLLM(this.config);
 
     if (this.options.enableEventLogging) {
       this.logEvent('config_update', { config });
@@ -252,14 +244,7 @@ export class LowLevelBotController {
     this.eventLog = [];
     
     // Reinitialize with current config
-    this.llm = new ChatOpenAI({
-      openAIApiKey: this.config.apiKey,
-      modelName: this.config.model || "gpt-3.5-turbo",
-      temperature: this.config.temperature || 0.7,
-      configuration: {
-        baseURL: this.config.baseUrl,
-      }
-    });
+    this.llm = createLLM(this.config);
     
     if (this.options.enableEventLogging) {
       this.logEvent('reset', {});
@@ -268,13 +253,18 @@ export class LowLevelBotController {
 
   // Advanced prompting
   async runWithSystemPrompt(userInput: string, systemPrompt: string): Promise<string> {
+    console.log(`[LLM CALL] Initiating call with system prompt: ${systemPrompt.substring(0, 80)}...`);
+    console.log(`[LLM CALL] User input: ${userInput.substring(0, 80)}...`);
+
     const messages: BaseMessage[] = [
       new SystemMessage(systemPrompt),
       new HumanMessage(userInput)
     ];
 
     const result = await this.callLLM(messages);
-    
+
+    console.log(`[LLM RESPONSE] Received response: ${result.substring(0, 120)}...`);
+
     // Add to history
     this.appendToHistory({
       role: 'system',

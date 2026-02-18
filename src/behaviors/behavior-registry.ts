@@ -1,4 +1,5 @@
 import { BaseBehavior, BehaviorFactory, BehaviorType } from './base-behavior';
+import { registerDefaultFactories } from './behavior-factories';
 
 export interface BehaviorRegistryOptions {
   autoRegisterDefaults?: boolean;
@@ -169,7 +170,55 @@ export class BehaviorRegistry {
    * Register default behaviors
    */
   private registerDefaultBehaviors(): void {
-    // Default behaviors will be registered here
+    // Register default behavior factories
+    registerDefaultFactories(this);
+
+    // Create and register default behavior instances
+    this.createAndRegister('read', {
+      id: 'default-read-behavior',
+      name: 'Default Read Behavior',
+      description: 'Default behavior for reading content',
+      type: 'read',
+      enabled: true,
+      priority: 1
+    });
+
+    this.createAndRegister('think', {
+      id: 'default-think-behavior',
+      name: 'Default Think Behavior',
+      description: 'Default behavior for thinking/reflecting',
+      type: 'think',
+      enabled: true,
+      priority: 1
+    });
+
+    this.createAndRegister('post', {
+      id: 'default-post-behavior',
+      name: 'Default Post Behavior',
+      description: 'Default behavior for creating posts',
+      type: 'post',
+      enabled: true,
+      priority: 1
+    });
+
+    this.createAndRegister('reply', {
+      id: 'default-reply-behavior',
+      name: 'Default Reply Behavior',
+      description: 'Default behavior for replying to posts',
+      type: 'reply',
+      enabled: true,
+      priority: 1
+    });
+
+    this.createAndRegister('idle', {
+      id: 'default-idle-behavior',
+      name: 'Default Idle Behavior',
+      description: 'Default behavior for idle time',
+      type: 'idle',
+      enabled: true,
+      priority: 1
+    });
+
     console.log('Registered default behaviors');
   }
 

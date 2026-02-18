@@ -1,7 +1,6 @@
-import { 
-  ApprovalPolicy, 
-  ApprovalRule, 
-  ApprovalCondition,
+import {
+  ApprovalPolicy,
+  ApprovalRule,
   ActionType,
   ApprovalConfig
 } from './approval-types';

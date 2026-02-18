@@ -1,5 +1,5 @@
 import storage from 'node-persist';
-import { Message } from './bot';
+import { Message } from './types';
 
 export interface SessionData {
   id: string;

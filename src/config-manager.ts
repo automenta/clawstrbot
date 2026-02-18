@@ -1,17 +1,10 @@
 import * as dotenv from 'dotenv';
-import { BotConfig } from './bot';
+import { BotConfig } from './types';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Load environment variables from .env file
 dotenv.config();
-
-export interface APIConfig {
-  apiKey: string;
-  baseUrl?: string;
-  model?: string;
-  temperature?: number;
-}
 
 export interface SavedConfig {
   lmProvider: {
@@ -24,7 +17,7 @@ export interface SavedConfig {
 
 export class ConfigManager {
   private static instance: ConfigManager;
-  private config: APIConfig;
+  private config: BotConfig;
   private configPath: string;
 
   private constructor() {
@@ -37,7 +30,7 @@ export class ConfigManager {
     };
   }
 
-  private loadSavedConfig(): APIConfig | null {
+  private loadSavedConfig(): BotConfig | null {
     try {
       if (fs.existsSync(this.configPath)) {
         const savedConfig: SavedConfig = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
@@ -56,22 +49,17 @@ export class ConfigManager {
     return ConfigManager.instance;
   }
 
-  public getConfig(): APIConfig {
+  public getConfig(): BotConfig {
     return { ...this.config };
   }
 
-  public updateConfig(newConfig: Partial<APIConfig>): void {
+  public updateConfig(newConfig: Partial<BotConfig>): void {
     this.config = { ...this.config, ...newConfig };
     this.saveConfig();
   }
 
   public getBotConfig(): BotConfig {
-    return {
-      apiKey: this.config.apiKey,
-      baseUrl: this.config.baseUrl,
-      model: this.config.model,
-      temperature: this.config.temperature,
-    };
+    return { ...this.config };
   }
 
   public loadFromEnv(): void {
@@ -108,9 +96,21 @@ TEMPERATURE=${this.config.temperature}
         type: 'unknown', // This would be set when provider is configured
         config: {} // This would be set when provider is configured
       },
-      bot: this.getBotConfig(),
+      bot: this.config,
       lastUpdated: new Date().toISOString()
     };
+
+    // Preserve existing provider config if possible
+    try {
+      if (fs.existsSync(this.configPath)) {
+        const existing = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+        if (existing.lmProvider) {
+          savedConfig.lmProvider = existing.lmProvider;
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
 
     fs.writeFileSync(this.configPath, JSON.stringify(savedConfig, null, 2));
   }
@@ -124,7 +124,7 @@ TEMPERATURE=${this.config.temperature}
       } else {
         savedConfig = {
           lmProvider: { type: '', config: {} },
-          bot: this.getBotConfig(),
+          bot: this.config,
           lastUpdated: new Date().toISOString()
         };
       }
@@ -132,7 +132,7 @@ TEMPERATURE=${this.config.temperature}
       console.warn('Could not load existing config, creating new one:', error);
       savedConfig = {
         lmProvider: { type: '', config: {} },
-        bot: this.getBotConfig(),
+        bot: this.config,
         lastUpdated: new Date().toISOString()
       };
     }
@@ -142,7 +142,7 @@ TEMPERATURE=${this.config.temperature}
       type,
       config
     };
-    savedConfig.bot = this.getBotConfig();
+    savedConfig.bot = this.config;
     savedConfig.lastUpdated = new Date().toISOString();
 
     // Ensure config directory exists

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { BehaviorRegistry } from './behaviors/behavior-registry';
-import { BaseBehavior, BehaviorExecutionContext, BehaviorResult } from './behaviors/base-behavior';
+import { BehaviorExecutionContext, BehaviorResult } from './behaviors/base-behavior';
 
 export type ActivityType = 'read' | 'think' | 'post' | 'reply' | 'idle' | string;
 
@@ -26,6 +26,7 @@ export interface ActivitySchedulerConfig {
   enableLogging?: boolean;
   userId?: string; // User ID for context
   behaviorRegistry?: BehaviorRegistry; // Optional behavior registry
+  contextData?: Record<string, any>; // Additional context data to pass to behaviors
 }
 
 export interface ActivityEvent {
@@ -161,6 +162,14 @@ export class ActivityScheduler extends EventEmitter {
     });
 
     this.log(`Completed activity: ${activityType} (actual: ${actualDurationMs}ms, scheduled: ${scheduledDurationMs}ms)`);
+
+    // If the activity completed much faster than scheduled (indicating rate limiting or other issues),
+    // add a delay to prevent rapid-fire scheduling
+    if (actualDurationMs < scheduledDurationMs * 0.1) { // Less than 10% of scheduled time
+      const delayMs = Math.min(scheduledDurationMs * 0.5, 10000); // Delay up to 50% of scheduled time or 10 seconds max
+      this.log(`Activity completed too quickly (${actualDurationMs}ms < ${scheduledDurationMs * 0.1}ms), adding ${delayMs}ms delay to prevent rapid scheduling`);
+      await this.wait(delayMs);
+    }
   }
 
   /**
@@ -184,7 +193,8 @@ export class ActivityScheduler extends EventEmitter {
         elapsedTimeMs: 0,
         remainingTimeMs: durationMs,
         progress: 0,
-        abortSignal: abortController.signal
+        abortSignal: abortController.signal,
+        ...this.config.contextData // Spread additional context data
       };
 
       // Look for a behavior that matches this activity type

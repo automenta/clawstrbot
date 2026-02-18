@@ -1,7 +1,8 @@
-import { ApprovalRequest, ApprovalStatus, ActionType } from './approval-types';
+import { ApprovalRequest, ActionType } from './approval-types';
 import { ApprovalSystem } from './approval-system';
 import { Account } from './account-manager';
 import { RateLimiter } from './rate-limiter';
+import logger from './logger';
 
 export interface BehavioralControlConfig {
   requireApprovalFor: ActionType[];
@@ -36,9 +37,12 @@ export class BehavioralController {
   }
 
   async checkBehavior(userId: string, actionType: ActionType, content?: string): Promise<{ allowed: boolean; requiresApproval?: boolean; reason?: string; approvalRequest?: ApprovalRequest }> {
+    logger.debug(`Checking behavior for user ${userId}, action ${actionType}`);
+
     // Check rate limits first
     const rateLimitResult = await this.checkRateLimits(userId, actionType);
     if (!rateLimitResult.allowed) {
+      logger.warn(`Rate limit blocked action for user ${userId}: ${rateLimitResult.reason}`);
       return rateLimitResult;
     }
 
@@ -46,6 +50,7 @@ export class BehavioralController {
     if (this.config.contentFiltering && content) {
       const contentCheck = this.checkContent(content);
       if (!contentCheck.allowed) {
+        logger.warn(`Content filtering blocked action for user ${userId}: ${contentCheck.reason}`);
         return {
           allowed: false,
           reason: contentCheck.reason
@@ -57,6 +62,7 @@ export class BehavioralController {
     if (this.config.sentimentAnalysis && content) {
       const sentimentCheck = this.analyzeSentiment(content);
       if (!sentimentCheck.allowed) {
+        logger.warn(`Sentiment analysis blocked action for user ${userId}: ${sentimentCheck.reason}`);
         return {
           allowed: false,
           reason: sentimentCheck.reason
@@ -70,6 +76,7 @@ export class BehavioralController {
       // Check if this action requires approval due to consecutive limits
       if (this.config.requireApprovalFor.includes(actionType)) {
         if (this.approvalSystem) {
+          logger.info(`Consecutive actions limit reached for user ${userId}, requesting approval`);
           const requester: Account = {
             id: userId,
             username: 'system',
@@ -94,6 +101,7 @@ export class BehavioralController {
         }
       }
       
+      logger.warn(`Consecutive actions blocked for user ${userId}: ${consecutiveCheck.reason}`);
       return consecutiveCheck;
     }
 
@@ -114,6 +122,7 @@ export class BehavioralController {
 
         const approvalRequest = await this.approvalSystem.evaluateAction(actionType, { content }, requester);
         if (approvalRequest) {
+          logger.info(`Action ${actionType} requires approval for user ${userId}`);
           return {
             allowed: false,
             requiresApproval: true,
@@ -131,25 +140,7 @@ export class BehavioralController {
   }
 
   private async checkRateLimits(userId: string, actionType: ActionType): Promise<{ allowed: boolean; reason?: string; retryAfter?: number }> {
-    let rateAction: 'post' | 'reply' | 'search' | 'message';
-    
-    switch (actionType) {
-      case ActionType.POST:
-        rateAction = 'post';
-        break;
-      case ActionType.REPLY:
-        rateAction = 'reply';
-        break;
-      case ActionType.SEND_MESSAGE:
-        rateAction = 'message';
-        break;
-      case ActionType.EXECUTE_TOOL:
-      default:
-        rateAction = 'message'; // Treat as general activity
-        break;
-    }
-
-    const rateLimitCheck = await this.rateLimiter.checkRateLimit(userId, rateAction);
+    const rateLimitCheck = await this.rateLimiter.checkRateLimit(userId, actionType);
     
     if (!rateLimitCheck.allowed) {
       return {
@@ -183,7 +174,7 @@ export class BehavioralController {
     
     // Check for excessive caps
     const capsRatio = (content.match(/[A-Z]/g) || []).length / content.length;
-    if (capsRatio > 0.7) {
+    if (capsRatio > 0.7 && content.length > 10) {
       return {
         allowed: false,
         reason: 'Content contains excessive capitalization'
@@ -198,7 +189,7 @@ export class BehavioralController {
     }
     
     for (const [word, count] of Object.entries(wordCounts)) {
-      if (count > words.length * 0.3) { // If a word appears in more than 30% of the content
+      if (words.length > 10 && count > words.length * 0.4) { // If a word appears in more than 40% of the content
         return {
           allowed: false,
           reason: `Content contains excessive repetition of word: "${word}"`
