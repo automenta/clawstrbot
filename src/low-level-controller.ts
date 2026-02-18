@@ -47,8 +47,8 @@ export class LowLevelBotController {
 
     const chain = RunnableSequence.from([
       (input: BaseMessage[]) => input,
-      this.llm,
-      new StringOutputParser()
+      this.llm as any,
+      new StringOutputParser() as any
     ]);
 
     const result = await chain.invoke(messages);
@@ -196,8 +196,8 @@ export class LowLevelBotController {
   async processMessages(messages: BaseMessage[]): Promise<string> {
     const chain = RunnableSequence.from([
       (input: BaseMessage[]) => input,
-      this.llm,
-      new StringOutputParser()
+      this.llm as any,
+      new StringOutputParser() as any
     ]);
 
     const result = await chain.invoke(messages);
